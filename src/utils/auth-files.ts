@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
 import { dirname, join } from "node:path"
@@ -100,6 +101,16 @@ export function writeAuthFileAtomic(relPath: string, content: string): void {
   const tmpPath = join(dir, `.agk-tmp-${process.pid}`)
   writeFileSync(tmpPath, content, { mode: 0o600 })
   renameSync(tmpPath, absPath)
+}
+
+export function removeAuthFile(relPath: string): boolean {
+  const absPath = getLiveAuthFilePath(relPath)
+  try {
+    rmSync(absPath)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function captureLiveAuthFiles(

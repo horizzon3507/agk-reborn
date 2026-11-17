@@ -11,6 +11,7 @@ export {
   geminiDirExists,
   parseAgyTokenFile,
   readAuthFile,
+  removeAuthFile,
   writeAuthFileAtomic,
 } from "./utils/auth-files.js"
 export type { AgyTokenFile, AuthFileSnapshot } from "./utils/auth-files.js"
@@ -44,7 +45,10 @@ export {
 } from "./utils/profiles.js"
 export type { Profile, ProfileFileMeta } from "./utils/profiles.js"
 
-export { listAgyProcesses } from "./utils/processes.js"
+export {
+  listAgyProcesses,
+  terminateProcesses,
+} from "./utils/processes.js"
 export type { RunningProcess } from "./utils/processes.js"
 
 export {

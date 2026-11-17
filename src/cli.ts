@@ -18,9 +18,7 @@ const main = defineCommand({
     doctor: doctorCommand,
   },
   async run({ rawArgs }) {
-    const hasSubCommand = rawArgs?.some((arg) =>
-      subCommandNames.includes(arg)
-    )
+    const hasSubCommand = rawArgs?.some((arg) => subCommandNames.includes(arg))
     if (hasSubCommand) return
 
     await runCommand(authCommand, { rawArgs: [] })

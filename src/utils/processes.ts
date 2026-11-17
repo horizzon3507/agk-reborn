@@ -41,3 +41,42 @@ export async function listAgyProcesses(): Promise<RunningProcess[]> {
     return []
   }
 }
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function terminateProcesses(
+  processes: RunningProcess[],
+  timeoutMs = 4000
+): Promise<number> {
+  for (const proc of processes) {
+    try {
+      process.kill(proc.pid, "SIGTERM")
+    } catch {
+      // already gone
+    }
+  }
+
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (processes.every((proc) => !isAlive(proc.pid))) return 0
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+
+  for (const proc of processes) {
+    try {
+      process.kill(proc.pid, "SIGKILL")
+    } catch {
+      // already gone
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  return processes.filter((proc) => isAlive(proc.pid)).length
+}

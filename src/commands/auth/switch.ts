@@ -9,13 +9,14 @@ import {
   detectAuthFileEmail,
   extractRefreshToken,
   readAuthFile,
+  removeAuthFile,
   writeAuthFileAtomic,
 } from "../../utils/auth-files.js"
 import { printHeader } from "../../utils/branding.js"
 import { buildClientCandidates } from "../../utils/oauth-clients.js"
 import { refreshAccessTokenAnyClient } from "../../utils/oauth.js"
 import { MANAGED_AUTH_FILES } from "../../utils/paths.js"
-import { listAgyProcesses } from "../../utils/processes.js"
+import { listAgyProcesses, terminateProcesses } from "../../utils/processes.js"
 import {
   getProfile,
   listProfiles,
@@ -42,7 +43,12 @@ export default defineCommand({
     },
     force: {
       type: "boolean",
-      description: "Switch even if agy processes are running",
+      description: "Kill running agy processes and switch without prompts",
+      default: false,
+    },
+    keepProcesses: {
+      type: "boolean",
+      description: "Do not kill running agy processes (switch may not stick)",
       default: false,
     },
   },
@@ -109,18 +115,6 @@ export default defineCommand({
       return
     }
 
-    const running = await listAgyProcesses()
-    if (running.length > 0 && !args.force) {
-      const proceed = await p.confirm({
-        message: `${pc.yellow(`${running.length} agy/antigravity process(es) running`)} — they hold the old account in memory. Switch anyway?`,
-        initialValue: true,
-      })
-      if (p.isCancel(proceed) || !proceed) {
-        p.cancel("Close agy sessions and try again")
-        process.exit(1)
-      }
-    }
-
     const spinner = p.spinner()
     spinner.start("Saving current session...")
 
@@ -131,6 +125,38 @@ export default defineCommand({
         ? `Current session saved (${captured.map((s) => s.email).join(", ")})`
         : "No live session to save"
     )
+
+    const running = await listAgyProcesses()
+    let killed = 0
+    if (running.length > 0 && !args.keepProcesses) {
+      let shouldKill = args.force
+      if (!shouldKill) {
+        const answer = await p.confirm({
+          message: `${pc.yellow(`${running.length} agy process(es) running`)} — they hold the old account in memory and will rewrite the auth files. Kill them?`,
+          initialValue: true,
+        })
+        if (p.isCancel(answer)) {
+          p.cancel("Cancelled")
+          process.exit(0)
+        }
+        shouldKill = answer
+      }
+
+      if (shouldKill) {
+        spinner.start(`Stopping ${running.length} agy process(es)...`)
+        const survivors = await terminateProcesses(running)
+        killed = running.length - survivors
+        spinner.stop(
+          survivors > 0
+            ? `${killed} stopped, ${pc.yellow(`${survivors} still alive`)}`
+            : `${killed} process(es) stopped`
+        )
+      } else {
+        console.log(
+          `  ${pc.yellow("⚠")} Keeping processes alive — they will likely rewrite the auth files and undo this switch.`
+        )
+      }
+    }
 
     spinner.start(`Restoring ${pc.cyan(targetEmail)} ...`)
 
@@ -179,32 +205,54 @@ export default defineCommand({
       writeAuthFileAtomic(snapshot.relPath, snapshot.content)
       updateProfileFile(targetEmail, snapshot.relPath, snapshot.content)
     }
-    setActiveAccount(targetEmail)
 
     const restoredPaths = new Set(patched.map((snapshot) => snapshot.relPath))
-    const leftovers: string[] = []
+    const removed: string[] = []
     for (const relPath of MANAGED_AUTH_FILES) {
       if (restoredPaths.has(relPath)) continue
       const live = readAuthFile(relPath)
-      if (!live) continue
+      if (live === null) continue
+      const owner = detectAuthFileEmail(relPath, live)
+      if (owner && owner !== targetEmail && removeAuthFile(relPath)) {
+        removed.push(`${relPath} (was ${owner})`)
+      }
+    }
+
+    setActiveAccount(targetEmail)
+
+    const mismatches: string[] = []
+    for (const relPath of MANAGED_AUTH_FILES) {
+      const live = readAuthFile(relPath)
+      if (live === null) continue
       const owner = detectAuthFileEmail(relPath, live)
       if (owner && owner !== targetEmail) {
-        leftovers.push(`${relPath} → still ${owner}`)
+        mismatches.push(`${relPath} → ${owner}`)
       }
     }
 
     spinner.stop(`Restored ${patched.length} auth file(s)`)
 
-    if (leftovers.length > 0) {
+    if (removed.length > 0) {
       console.log(
-        `  ${pc.yellow("⚠")} Profile lacks some files; live leftovers:\n${leftovers.map((entry) => `     ${pc.dim(entry)}`).join("\n")}`
+        `  ${pc.dim("Removed stale files:")}\n${removed.map((entry) => `     ${pc.dim(entry)}`).join("\n")}`
       )
     }
+
+    if (mismatches.length > 0) {
+      console.log(
+        `  ${pc.red("✖")} Live files were rewritten back — a running process restored the old account:\n${mismatches.map((entry) => `     ${pc.dim(entry)}`).join("\n")}`
+      )
+    }
+
+    const aliveNote =
+      running.length - killed > 0
+        ? `\n${pc.yellow("⚠")} ${running.length - killed} agy process(es) still running — they may overwrite this switch.`
+        : ""
 
     console.log()
     p.note(
       `${pc.green("Active:")} ${targetEmail}
-${pc.green("Files:")} ${patched.map((s) => s.relPath).join("\n         ")}${running.length > 0 ? `\n${pc.yellow("⚠")} ${running.length} agy process(es) still running — restart them to use the new account.` : ""}`,
+${pc.green("Files:")} ${patched.map((s) => s.relPath).join("\n         ")}${aliveNote}`,
       "Switched"
     )
 

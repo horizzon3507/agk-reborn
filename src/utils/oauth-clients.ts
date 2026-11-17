@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import { delimiter, dirname, join } from "node:path"
 import type { OAuthClient } from "./oauth.js"
 
