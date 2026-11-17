@@ -29,6 +29,14 @@
 
 ## Installation
 
+**Standalone binary** (no Node.js needed) — grab `agk` from [Releases](https://github.com/horizzon3507/agk-reborn/releases), or build it yourself:
+
+```bash
+bun run build:bin   # outputs dist/agk (~69MB, single file)
+```
+
+**npm** (requires Node.js >= 18):
+
 ```bash
 npm install -g agk-reborn
 # or

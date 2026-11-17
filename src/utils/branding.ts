@@ -1,26 +1,13 @@
-import { readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import figlet from "figlet"
 import gradient from "gradient-string"
 import pc from "picocolors"
+import { VERSION } from "../version.js"
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-interface PackageJson {
-  version: string
-  name: string
-}
-
-function getPackageJson(): PackageJson {
-  try {
-    const pkgPath = join(__dirname, "..", "package.json")
-    const content = readFileSync(pkgPath, "utf-8")
-    return JSON.parse(content) as PackageJson
-  } catch {
-    return { version: "0.0.0", name: "agk-reborn" }
-  }
-}
+const BANNER = ` █████╗  ██████╗ ██╗  ██╗
+██╔══██╗██╔════╝ ██║ ██╔╝
+███████║██║  ███╗█████╔╝
+██╔══██║██║   ██║██╔═██╗
+██║  ██║╚██████╔╝██║  ██╗
+╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝`
 
 const agkGradient = gradient([
   { color: "#98FB98", pos: 0 },
@@ -30,17 +17,11 @@ const agkGradient = gradient([
 ])
 
 export function printBanner(): void {
-  const banner = figlet.textSync("AGK", {
-    font: "ANSI Shadow",
-    horizontalLayout: "fitted",
-  })
-
-  console.log(agkGradient.multiline(banner))
+  console.log(agkGradient.multiline(BANNER))
 }
 
 export function printVersion(): void {
-  const pkg = getPackageJson()
-  console.log(pc.dim(`v${pkg.version} • Made with ${pc.red("♥")}`))
+  console.log(pc.dim(`v${VERSION} • Made with ${pc.red("♥")}`))
   console.log()
 }
 
