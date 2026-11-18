@@ -124,13 +124,28 @@ export {
   setProfileClient,
   updateProfileFile,
 } from "./utils/profiles.js"
-export type { Profile, ProfileFileMeta } from "./utils/profiles.js"
+export type {
+  Profile,
+  ProfileFileMeta,
+  SaveProfileOptions,
+} from "./utils/profiles.js"
 
 export {
+  collectProtectedPids,
+  filterAgyProcessRows,
+  formatProcessSummary,
+  isAgyArgv,
   listAgyProcesses,
+  parsePsTable,
+  scanAgyProcesses,
   terminateProcesses,
+  tokenizeCommandString,
 } from "./utils/processes.js"
-export type { RunningProcess } from "./utils/processes.js"
+export type {
+  AgyProcessScanResult,
+  RawProcessRow,
+  RunningProcess,
+} from "./utils/processes.js"
 
 export {
   captureSessionToProfiles,
@@ -145,41 +160,85 @@ export {
   buildOauthCredsFile,
   patchAuthFileTokens,
 } from "./utils/token-builders.js"
-export type { FreshTokens } from "./utils/token-builders.js"
+export type { BuiltAuthFile, FreshTokens } from "./utils/token-builders.js"
 
 export {
+  AUTH_URL,
+  OAuthError,
   SCOPES,
   TOKEN_URL,
   exchangeCode,
+  generateOAuthState,
+  generatePkcePair,
   getAuthUrl,
   refreshAccessToken,
   refreshAccessTokenAnyClient,
 } from "./utils/oauth.js"
-
-export {
-  buildClientCandidates,
-  discoverOAuthClients,
-  extractClientFromAuthFile,
-  extractClientsFromBinary,
-} from "./utils/oauth-clients.js"
 export type {
+  AuthUrlOptions,
   OAuthClient,
+  OAuthErrorKind,
+  OAuthRequestOptions,
+  PkcePair,
   RefreshedSession,
   TokenResponse,
 } from "./utils/oauth.js"
 
-export { startOAuthFlow } from "./utils/oauth-server.js"
-export type { OAuthFlowResult } from "./utils/oauth-server.js"
-
-export { getUserInfo } from "./utils/google-api.js"
-export type { UserInfo } from "./utils/google-api.js"
+export {
+  MAX_SCAN_FILE_BYTES,
+  buildClientCandidates,
+  clearOAuthClientCache,
+  discoverOAuthClients,
+  extractClientFromAuthFile,
+  extractClientsFromBinary,
+} from "./utils/oauth-clients.js"
+export type { ClientCandidateOptions } from "./utils/oauth-clients.js"
 
 export {
+  DEFAULT_CALLBACK_TIMEOUT_MS,
+  OAUTH_CALLBACK_PATH,
+  OAUTH_LOOPBACK_HOST,
+  openBrowser,
+  startCallbackServer,
+  startOAuthFlow,
+  validateBrowserUrl,
+  verifyOAuthState,
+} from "./utils/oauth-server.js"
+export type {
+  CallbackServerHandle,
+  CallbackServerOptions,
+  OAuthFlowOptions,
+  OAuthFlowResult,
+  OAuthFlowStage,
+} from "./utils/oauth-server.js"
+
+export {
+  USERINFO_URL,
+  USER_AGENT,
+  buildHostUserAgent,
+  fetchWithRetry,
+  getUserInfo,
+} from "./utils/google-api.js"
+export type { ApiRequestOptions, UserInfo } from "./utils/google-api.js"
+
+export {
+  CLOUD_CODE_BASE_URL,
+  LOAD_CODE_ASSIST_URL,
+  QUOTA_API_URL,
+  clampQuotaPercentage,
+  computeQuotaPercentage,
   fetchProjectId,
   fetchQuota,
   getQuotaWithRefresh,
+  resolveFamilyQuota,
 } from "./utils/quota.js"
-export type { ModelQuota, QuotaResult } from "./utils/quota.js"
+export type {
+  ModelQuota,
+  ProjectAssistInfo,
+  QuotaRequestOptions,
+  QuotaResult,
+  RefreshedQuotaResult,
+} from "./utils/quota.js"
 
 export {
   printBanner,
@@ -190,4 +249,6 @@ export {
   printSuccess,
   printVersion,
   printWarning,
+  resetHeaderState,
+  shouldSuppressBanner,
 } from "./utils/branding.js"
