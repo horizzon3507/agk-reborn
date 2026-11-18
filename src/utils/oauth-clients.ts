@@ -128,11 +128,17 @@ export function buildClientCandidates(options: {
   }
 
   if (options.stored) {
-    push({
-      id: options.stored.clientId,
-      secret: options.stored.clientSecret,
-      label: "profile",
-    })
+    const id =
+      typeof options.stored.clientId === "string"
+        ? options.stored.clientId.trim()
+        : ""
+    const secret =
+      typeof options.stored.clientSecret === "string"
+        ? options.stored.clientSecret.trim()
+        : ""
+    if (CLIENT_ID_TEST.test(id) && CLIENT_SECRET_TEST.test(secret)) {
+      push({ id, secret, label: "profile" })
+    }
   }
 
   for (const content of options.authFileContents ?? []) {
