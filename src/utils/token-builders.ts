@@ -1,3 +1,4 @@
+import { decodeJwtPayload } from "./jwt.js"
 import { type OAuthClient, SCOPES, TOKEN_URL } from "./oauth.js"
 import {
   ACP_TOKEN_REL,
@@ -5,39 +6,62 @@ import {
   KEYRING_REL,
   OAUTH_CREDS_REL,
 } from "./paths.js"
+import { isPlainObject, normalizeEmail, parseJsonObject } from "./redact.js"
 
 export interface FreshTokens {
   access_token: string
   refresh_token: string
-  expires_in?: number
+  expires_in?: number | undefined
   id_token?: string | undefined
+}
+
+export interface BuiltAuthFile {
+  relPath: string
+  content: string
 }
 
 const ACP_SCOPES = [
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/aicode",
-]
+] as const
 
-export function buildAgyTokenFile(tokens: FreshTokens, email: string): string {
-  const expiry = new Date(
-    Date.now() + (tokens.expires_in ?? 3600) * 1000
-  ).toISOString()
+const DEFAULT_EXPIRES_IN_SECONDS = 3600
+const MAX_EXPIRES_IN_SECONDS = 31_536_000
 
-  const file: Record<string, unknown> = {
-    token: {
-      access_token: tokens.access_token,
-      token_type: "Bearer",
-      refresh_token: tokens.refresh_token,
-      expiry,
-      expires_in: tokens.expires_in ?? 3600,
-    },
-    auth_method: "consumer",
-    id_token_email: email,
+function normalizeExpiresIn(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_EXPIRES_IN_SECONDS
+  }
+  return Math.min(MAX_EXPIRES_IN_SECONDS, Math.max(1, Math.round(raw)))
+}
+
+export function buildAgyTokenFile(
+  tokens: FreshTokens,
+  email: string,
+  idToken?: string
+): string {
+  const normalizedEmail = normalizeEmail(email) ?? email.trim().toLowerCase()
+  const expiresIn = normalizeExpiresIn(tokens.expires_in)
+  const expiry = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+  const tokenObj: Record<string, unknown> = {
+    access_token: tokens.access_token.trim(),
+    token_type: "Bearer",
+    refresh_token: tokens.refresh_token.trim(),
+    expiry,
+    expires_in: expiresIn,
   }
 
-  if (tokens.id_token) {
-    ;(file["token"] as Record<string, unknown>)["id_token"] = tokens.id_token
+  const resolvedIdToken = (idToken ?? tokens.id_token)?.trim()
+  if (resolvedIdToken) {
+    tokenObj["id_token"] = resolvedIdToken
+  }
+
+  const file: Record<string, unknown> = {
+    token: tokenObj,
+    auth_method: "consumer",
+    id_token_email: normalizedEmail,
   }
 
   return JSON.stringify(file, null, 2)
@@ -47,18 +71,19 @@ export function buildOauthCredsFile(
   tokens: FreshTokens,
   idToken?: string
 ): string {
-  const expiryDate = Date.now() + (tokens.expires_in ?? 3600) * 1000
+  const expiresIn = normalizeExpiresIn(tokens.expires_in)
+  const expiryDate = Date.now() + expiresIn * 1000
 
   const file: Record<string, unknown> = {
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
+    access_token: tokens.access_token.trim(),
+    refresh_token: tokens.refresh_token.trim(),
     token_type: "Bearer",
     scope: SCOPES.join(" "),
     expiry_date: expiryDate,
     expiry: new Date(expiryDate).toISOString(),
   }
 
-  const resolvedIdToken = idToken ?? tokens.id_token
+  const resolvedIdToken = (idToken ?? tokens.id_token)?.trim()
   if (resolvedIdToken) {
     file["id_token"] = resolvedIdToken
   }
@@ -72,11 +97,11 @@ export function buildAcpTokenFile(
 ): string {
   return JSON.stringify(
     {
-      client_id: client.id,
-      client_secret: client.secret,
-      refresh_token: refreshToken,
+      client_id: client.id.trim(),
+      client_secret: client.secret.trim(),
+      refresh_token: refreshToken.trim(),
       token_uri: TOKEN_URL,
-      scopes: ACP_SCOPES,
+      scopes: [...ACP_SCOPES],
       project_id: "aicode-consumers",
     },
     null,
@@ -89,30 +114,72 @@ export function patchAuthFileTokens(
   content: string,
   tokens: FreshTokens
 ): string {
-  try {
-    const parsed = JSON.parse(content) as Record<string, unknown>
-    const expiry = new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000)
+  const parsed = parseJsonObject(content)
+  if (!parsed) return content
 
-    if (relPath === AGY_TOKEN_REL || relPath === KEYRING_REL) {
-      const token = (parsed["token"] ?? {}) as Record<string, unknown>
-      token["access_token"] = tokens.access_token
-      token["refresh_token"] = tokens.refresh_token
-      token["expiry"] = expiry.toISOString()
-      token["expires_in"] = tokens.expires_in ?? 3600
-      parsed["token"] = token
-    } else if (relPath === ACP_TOKEN_REL) {
-      parsed["refresh_token"] = tokens.refresh_token
-    } else {
-      parsed["access_token"] = tokens.access_token
-      parsed["refresh_token"] = tokens.refresh_token
-      parsed["expiry_date"] = expiry.getTime()
-      parsed["expiry"] = expiry.toISOString()
+  const accessToken = tokens.access_token.trim()
+  if (!accessToken) return content
+
+  const refreshToken = tokens.refresh_token.trim()
+  const idToken = tokens.id_token?.trim()
+  const expiresIn = normalizeExpiresIn(tokens.expires_in)
+  const expiryMs = Date.now() + expiresIn * 1000
+  const expiryIso = new Date(expiryMs).toISOString()
+
+  if (relPath === AGY_TOKEN_REL || relPath === KEYRING_REL) {
+    const prevToken = isPlainObject(parsed["token"]) ? parsed["token"] : {}
+    const nextToken: Record<string, unknown> = {
+      token_type: "Bearer",
+      ...prevToken,
+      access_token: accessToken,
+      expiry: expiryIso,
+      expires_in: expiresIn,
+    }
+    if (refreshToken) {
+      nextToken["refresh_token"] = refreshToken
+    }
+    if (idToken) {
+      nextToken["id_token"] = idToken
     }
 
-    return JSON.stringify(parsed, null, 2)
-  } catch {
-    return content
+    const nextRoot: Record<string, unknown> = {
+      ...parsed,
+      token: nextToken,
+    }
+    if (idToken) {
+      const jwtEmail = decodeJwtPayload(idToken)?.email
+      if (jwtEmail) {
+        nextRoot["id_token_email"] = jwtEmail
+      }
+    }
+    return JSON.stringify(nextRoot, null, 2)
   }
+
+  if (relPath === ACP_TOKEN_REL) {
+    const nextRoot: Record<string, unknown> = { ...parsed }
+    if (refreshToken) {
+      nextRoot["refresh_token"] = refreshToken
+    }
+    return JSON.stringify(nextRoot, null, 2)
+  }
+
+  if (relPath === OAUTH_CREDS_REL) {
+    const nextRoot: Record<string, unknown> = {
+      ...parsed,
+      access_token: accessToken,
+      expiry_date: expiryMs,
+      expiry: expiryIso,
+    }
+    if (refreshToken) {
+      nextRoot["refresh_token"] = refreshToken
+    }
+    if (idToken) {
+      nextRoot["id_token"] = idToken
+    }
+    return JSON.stringify(nextRoot, null, 2)
+  }
+
+  return content
 }
 
 export function buildAuthFilesForTokens(
@@ -120,12 +187,16 @@ export function buildAuthFilesForTokens(
   email: string,
   client: OAuthClient,
   idToken?: string
-): Array<{ relPath: string; content: string }> {
+): BuiltAuthFile[] {
+  const resolvedIdToken = idToken ?? tokens.id_token
   return [
-    { relPath: AGY_TOKEN_REL, content: buildAgyTokenFile(tokens, email) },
+    {
+      relPath: AGY_TOKEN_REL,
+      content: buildAgyTokenFile(tokens, email, resolvedIdToken),
+    },
     {
       relPath: OAUTH_CREDS_REL,
-      content: buildOauthCredsFile(tokens, idToken),
+      content: buildOauthCredsFile(tokens, resolvedIdToken),
     },
     {
       relPath: ACP_TOKEN_REL,
