@@ -1,28 +1,28 @@
-/**
- * Quota Fetching Utilities
- *
- * Handles fetching quota information from Google Cloud Code API.
- *
- * Original Author: lbjlaq (https://github.com/lbjlaq)
- * License: CC-BY-NC-SA-4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/)
- * Note: This version contains modifications based on the original source code.
- */
+import {
+  type ApiRequestOptions,
+  USER_AGENT,
+  fetchWithRetry,
+  getUserInfo,
+} from "./google-api.js"
+import { decodeJwtPayload } from "./jwt.js"
+import {
+  type OAuthClient,
+  type TokenResponse,
+  refreshAccessTokenAnyClient,
+} from "./oauth.js"
+import {
+  formatHttpErrorDetail,
+  isPlainObject,
+  parseJsonObject,
+  readBoundedResponseText,
+  sanitizeTerminalText,
+} from "./redact.js"
 
-import { getUserInfo } from "./google-api.js"
-import { type OAuthClient, refreshAccessTokenAnyClient } from "./oauth.js"
-
-// ============================================
-// CONFIGURATION
-// ============================================
+export { USER_AGENT }
 
 export const CLOUD_CODE_BASE_URL = "https://cloudcode-pa.googleapis.com"
 export const QUOTA_API_URL = `${CLOUD_CODE_BASE_URL}/v1internal:fetchAvailableModels`
 export const LOAD_CODE_ASSIST_URL = `${CLOUD_CODE_BASE_URL}/v1internal:loadCodeAssist`
-export const USER_AGENT = "antigravity/1.5.10 linux/x64"
-
-// ============================================
-// TYPES
-// ============================================
 
 export interface ModelQuota {
   name: string
