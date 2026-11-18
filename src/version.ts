@@ -1,5 +1,6 @@
-import pkg from "../package.json" with { type: "json" }
+import { description, name, version } from "../package.json"
 
-export const VERSION: string = pkg.version
-export const NAME: string = pkg.name
-export const DESCRIPTION: string = pkg.description
+export const VERSION: string = version
+export const NAME: string = name
+export const BIN_NAME = "agk"
+export const DESCRIPTION: string = description
