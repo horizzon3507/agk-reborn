@@ -1,18 +1,15 @@
-/**
- *
- * OAuth Authentication Utilities
- *
- * Handles Google OAuth token management for Antigravity accounts.
- *
- * Original Author: lbjlaq (https://github.com/lbjlaq)
- * License: CC-BY-NC-SA-4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/)
- * Note: This version contains modifications based on the original source code.
- */
+import { createHash, randomBytes } from "node:crypto"
+import {
+  formatHttpErrorDetail,
+  parseJsonObject,
+  readBoundedResponseText,
+  sanitizeErrorMessage,
+} from "./redact.js"
 
 export const TOKEN_URL = "https://oauth2.googleapis.com/token"
 export const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 
-export const SCOPES = [
+export const SCOPES: readonly string[] = [
   "openid",
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
@@ -31,15 +28,98 @@ export interface OAuthClient {
 export interface TokenResponse {
   access_token: string
   expires_in: number
-  token_type?: string
-  refresh_token?: string
-  id_token?: string
+  token_type?: string | undefined
+  refresh_token?: string | undefined
+  id_token?: string | undefined
 }
 
-export function getAuthUrl(redirectUri: string, client: OAuthClient): string {
+export interface RefreshedSession {
+  tokens: TokenResponse
+  client: OAuthClient
+}
+
+export interface PkcePair {
+  verifier: string
+  challenge: string
+  method: "S256"
+}
+
+export interface AuthUrlOptions {
+  state?: string | undefined
+  codeChallenge?: string | undefined
+  codeChallengeMethod?: "S256" | undefined
+}
+
+export interface OAuthRequestOptions {
+  timeoutMs?: number | undefined
+  maxRetries?: number | undefined
+  signal?: AbortSignal | undefined
+}
+
+export type OAuthErrorKind =
+  | "invalid_grant"
+  | "client_mismatch"
+  | "rate_limited"
+  | "transient"
+  | "invalid_response"
+  | "invalid_request"
+  | "no_clients"
+  | "aborted"
+  | "http_error"
+
+export class OAuthError extends Error {
+  readonly kind: OAuthErrorKind
+  readonly status?: number | undefined
+
+  constructor(
+    message: string,
+    options: { kind: OAuthErrorKind; status?: number | undefined }
+  ) {
+    super(message)
+    this.name = "OAuthError"
+    this.kind = options.kind
+    this.status = options.status
+  }
+}
+
+const DEFAULT_OAUTH_TIMEOUT_MS = 12_000
+const DEFAULT_MAX_RETRIES = 2
+const MAX_RETRY_AFTER_MS = 5_000
+
+function resolveTokenEndpoint(): string {
+  return process.env["AGK_OAUTH_TOKEN_URL"]?.trim() || TOKEN_URL
+}
+
+function resolveAuthEndpoint(): string {
+  return process.env["AGK_OAUTH_AUTH_URL"]?.trim() || AUTH_URL
+}
+
+export function generatePkcePair(): PkcePair {
+  const verifier = randomBytes(32).toString("base64url")
+  const challenge = createHash("sha256").update(verifier).digest("base64url")
+  return { verifier, challenge, method: "S256" }
+}
+
+export function generateOAuthState(): string {
+  return randomBytes(32).toString("base64url")
+}
+
+export function getAuthUrl(
+  redirectUri: string,
+  client: OAuthClient,
+  options?: AuthUrlOptions
+): string {
+  const cleanRedirect = redirectUri.trim()
+  const cleanClientId = client.id.trim()
+  if (!cleanRedirect || !cleanClientId) {
+    throw new OAuthError("Missing OAuth redirect URI or client ID", {
+      kind: "invalid_request",
+    })
+  }
+
   const params = new URLSearchParams({
-    client_id: client.id,
-    redirect_uri: redirectUri,
+    client_id: cleanClientId,
+    redirect_uri: cleanRedirect,
     response_type: "code",
     scope: SCOPES.join(" "),
     access_type: "offline",
