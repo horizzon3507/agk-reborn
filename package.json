@@ -68,14 +68,12 @@
     "@clack/prompts": "^0.8.2",
     "citty": "^0.1.6",
     "cli-table3": "^0.6.5",
-    "picocolors": "^1.1.1",
-    "gradient-string": "^3.0.0"
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.9.0",
     "tsup": "^8.3.5",
-    "typescript": "^5.6.3",
-    "@types/gradient-string": "^1.1.6"
+    "typescript": "^5.6.3"
   }
 }
