@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-black" alt="License: MIT" />
+  <a href="https://www.apache.org/licenses/LICENSE-2.0">
+    <img src="https://img.shields.io/badge/License-Apache--2.0-black" alt="License: Apache-2.0" />
   </a>
   <img src="https://img.shields.io/badge/node-%3E%3D18-black" alt="Node >= 18" />
 </p>
@@ -174,4 +174,4 @@ Refresh tokens are bound to the OAuth client that issued them. During `switch`, 
 
 ## License
 
-MIT. See [LICENSE.md](LICENSE.md).
+Apache 2.0. See [LICENSE.md](LICENSE.md).
