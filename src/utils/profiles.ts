@@ -444,37 +444,75 @@ export function setProfileClient(
   email: string,
   client: { id: string; secret: string }
 ): void {
-  const profilePath = getProfilePath(email)
+  const normalized = normalizeEmail(email)
+  if (!normalized) return
+
+  const profilePath = getProfilePath(normalized)
   const meta = readMeta(profilePath)
   if (!meta) return
 
-  meta.clientId = client.id
-  meta.clientSecret = client.secret
+  meta.clientId = client.id.trim()
+  meta.clientSecret = client.secret.trim()
   meta.updatedAt = Date.now()
-  writeFileSync(join(profilePath, META_FILE), JSON.stringify(meta, null, 2), {
-    mode: 0o600,
-  })
+  writeFileAtomicSync(
+    join(profilePath, META_FILE),
+    JSON.stringify(meta, null, 2),
+    {
+      mode: 0o600,
+      dirMode: 0o700,
+      rootBoundary: getAgkDir(),
+    }
+  )
 }
 
 export function loadProfileSnapshots(email: string): AuthFileSnapshot[] {
-  const profilePath = getProfilePath(email)
+  const normalized = normalizeEmail(email)
+  if (!normalized) return []
+
+  const profilePath = getProfilePath(normalized)
   const filesDir = join(profilePath, FILES_DIR)
   if (!existsSync(filesDir)) return []
+
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(filesDir, { withFileTypes: true })
+  } catch {
+    return []
+  }
 
   const snapshots: AuthFileSnapshot[] = []
   const meta = readMeta(profilePath)
 
-  for (const entry of readdirSync(filesDir)) {
-    const relPath = decodeRelPath(entry)
-    const content = readFileSync(join(filesDir, entry), "utf-8")
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue
+    if (!entry.isFile() || entry.isSymbolicLink()) continue
+
+    let relPath: string
+    try {
+      relPath = decodeRelPath(entry.name)
+    } catch {
+      continue
+    }
+
+    const readRes = readRegularFileSafe(
+      join(filesDir, entry.name),
+      MAX_SAFE_FILE_BYTES
+    )
+    if (readRes.status !== "ok") continue
+
     snapshots.push({
       relPath,
-      content,
-      email: meta?.files?.[relPath]?.email ?? null,
+      content: readRes.content,
+      email: meta?.files[relPath]?.email ?? null,
     })
   }
 
-  return snapshots
+  return snapshots.sort((a, b) => {
+    const prioA = SNAPSHOT_PRIORITY[a.relPath] ?? 99
+    const prioB = SNAPSHOT_PRIORITY[b.relPath] ?? 99
+    if (prioA !== prioB) return prioA - prioB
+    return a.relPath.localeCompare(b.relPath)
+  })
 }
 
 export function updateProfileFile(
@@ -482,22 +520,66 @@ export function updateProfileFile(
   relPath: string,
   content: string
 ): void {
-  const profilePath = getProfilePath(email)
+  const normalized = normalizeEmail(email)
+  if (!normalized) return
+
+  let safeRel: string
+  try {
+    safeRel = assertSafeRelPath(relPath)
+  } catch {
+    return
+  }
+
+  const agkDir = getAgkDir()
+  const profilePath = getProfilePath(normalized)
   const filesDir = join(profilePath, FILES_DIR)
   if (!existsSync(filesDir)) return
 
-  const filePath = join(filesDir, encodeRelPath(relPath))
-  if (!existsSync(filePath)) return
+  const encodedPath = join(filesDir, encodeRelPath(safeRel))
+  if (!existsSync(encodedPath)) return
 
-  writeFileSync(filePath, content, { mode: 0o600 })
+  writeFileAtomicSync(encodedPath, content, {
+    mode: 0o600,
+    dirMode: 0o700,
+    rootBoundary: agkDir,
+  })
+
+  const meta = readMeta(profilePath)
+  if (meta) {
+    const now = Date.now()
+    meta.updatedAt = now
+    const prevFileMeta = meta.files[safeRel]
+    meta.files[safeRel] = {
+      email: prevFileMeta?.email ?? normalized,
+      savedAt: now,
+    }
+    writeFileAtomicSync(
+      join(profilePath, META_FILE),
+      JSON.stringify(meta, null, 2),
+      {
+        mode: 0o600,
+        dirMode: 0o700,
+        rootBoundary: agkDir,
+      }
+    )
+  }
 }
 
 export function removeProfile(email: string): boolean {
-  const profilePath = getProfilePath(email)
-  if (!existsSync(profilePath)) return false
+  const normalized = normalizeEmail(email)
+  if (!normalized) return false
+
+  const profilesDir = getProfilesDir()
+  const profilePath = assertWithinDir(profilesDir, getProfilePath(normalized))
 
   try {
-    rmSync(profilePath, { recursive: true, force: true })
+    const st = lstatSync(profilePath)
+    if (st.isSymbolicLink()) {
+      unlinkSync(profilePath)
+      return true
+    }
+    if (!st.isDirectory()) return false
+    rmSync(profilePath, { recursive: true, force: false })
     return true
   } catch {
     return false
@@ -505,7 +587,31 @@ export function removeProfile(email: string): boolean {
 }
 
 export function backupProfileTo(profile: Profile, destDir: string): void {
-  cpSync(profile.path, join(destDir, sanitizeEmail(profile.email)), {
-    recursive: true,
-  })
+  const targetProfileDir = assertWithinDir(
+    destDir,
+    join(destDir, sanitizeEmail(profile.email))
+  )
+  const targetFilesDir = join(targetProfileDir, FILES_DIR)
+  ensureSecureDirSync(targetFilesDir, { mode: 0o700, rootBoundary: destDir })
+
+  const snapshots = loadProfileSnapshots(profile.email)
+  for (const snapshot of snapshots) {
+    writeFileAtomicSync(
+      join(targetFilesDir, encodeRelPath(snapshot.relPath)),
+      snapshot.content,
+      { mode: 0o600, dirMode: 0o700, rootBoundary: destDir }
+    )
+  }
+
+  const metaState = readRegularFileSafe(
+    join(profile.path, META_FILE),
+    MAX_SAFE_FILE_BYTES
+  )
+  if (metaState.status === "ok") {
+    writeFileAtomicSync(join(targetProfileDir, META_FILE), metaState.content, {
+      mode: 0o600,
+      dirMode: 0o700,
+      rootBoundary: destDir,
+    })
+  }
 }
