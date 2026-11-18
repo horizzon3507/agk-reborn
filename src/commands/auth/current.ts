@@ -1,14 +1,17 @@
-import { existsSync } from "node:fs"
 import * as p from "@clack/prompts"
 import { defineCommand } from "citty"
 import pc from "picocolors"
 import { getActiveAccountEmail } from "../../utils/accounts.js"
-import { detectAuthFileEmail, readAuthFile } from "../../utils/auth-files.js"
+import {
+  authFileExists,
+  detectAuthFileEmail,
+  readAuthFile,
+} from "../../utils/auth-files.js"
 import { printHeader } from "../../utils/branding.js"
 import {
   AGY_TOKEN_REL,
+  KEYRING_REL,
   MANAGED_AUTH_FILES,
-  getLiveAuthFilePath,
 } from "../../utils/paths.js"
 import { getProfile } from "../../utils/profiles.js"
 
@@ -28,8 +31,7 @@ export default defineCommand({
     let sessionEmail: string | null = null
 
     for (const relPath of MANAGED_AUTH_FILES) {
-      const absPath = getLiveAuthFilePath(relPath)
-      if (!existsSync(absPath)) {
+      if (!authFileExists(relPath)) {
         lines.push(`  ${pc.dim("✗")} ${relPath} ${pc.dim("— missing")}`)
         continue
       }
@@ -44,6 +46,9 @@ export default defineCommand({
       const detail = email ?? pc.dim("no email embedded")
 
       if (relPath === AGY_TOKEN_REL) {
+        sessionEmail = email
+      }
+      if (relPath === KEYRING_REL && email) {
         sessionEmail = email
       }
 

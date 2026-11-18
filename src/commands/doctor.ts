@@ -6,6 +6,7 @@ import { defineCommand } from "citty"
 import pc from "picocolors"
 import { getActiveAccountEmail } from "../utils/accounts.js"
 import {
+  authFileExists,
   detectAuthFileEmail,
   parseAgyTokenFile,
   readAuthFile,
@@ -14,10 +15,10 @@ import { printHeader } from "../utils/branding.js"
 import {
   ACP_TOKEN_REL,
   AGY_TOKEN_REL,
+  KEYRING_REL,
   OAUTH_CREDS_REL,
   getAgkDir,
   getGeminiDir,
-  getLiveAuthFilePath,
 } from "../utils/paths.js"
 import { listAgyProcesses } from "../utils/processes.js"
 import { listProfiles } from "../utils/profiles.js"
@@ -64,9 +65,13 @@ export default defineCommand({
 
     const emails = new Map<string, string>()
 
-    for (const relPath of [AGY_TOKEN_REL, OAUTH_CREDS_REL, ACP_TOKEN_REL]) {
-      const absPath = getLiveAuthFilePath(relPath)
-      if (!existsSync(absPath)) {
+    for (const relPath of [
+      AGY_TOKEN_REL,
+      OAUTH_CREDS_REL,
+      ACP_TOKEN_REL,
+      KEYRING_REL,
+    ]) {
+      if (!authFileExists(relPath)) {
         check("warn", `${relPath} missing`)
         continue
       }
@@ -97,7 +102,8 @@ export default defineCommand({
     }
 
     const activeMarker = getActiveAccountEmail()
-    const sessionEmail = emails.get(AGY_TOKEN_REL) ?? null
+    const sessionEmail =
+      emails.get(KEYRING_REL) ?? emails.get(AGY_TOKEN_REL) ?? null
 
     if (activeMarker && sessionEmail && activeMarker !== sessionEmail) {
       check(

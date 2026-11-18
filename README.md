@@ -89,8 +89,11 @@ The modern Antigravity CLI stores its session as JSON files under `~/.gemini/`:
 | `antigravity-acp/acp_token.json` | ACP agent token |
 | `oauth_creds.json` | shared OAuth credentials |
 | `google_accounts.json` | active-account marker |
+| `keyring/antigravity` | Secret Service item (`gemini`/`antigravity`) — agy reads this first |
 
 A profile is a snapshot of the auth files belonging to one account, stored under `~/.agk-reborn/profiles/<email>/` with `0600` permissions. Switching refreshes the stored token (using the OAuth client that issued it), writes the files back atomically, and sets the active marker.
+
+On Linux, `agy` also caches its token in the desktop keyring (via `secret-tool`) and prefers it over the files on disk. agk-reborn manages that entry as a virtual auth file: captured, restored and cleared alongside the rest. If a profile predates keyring capture, the switch derives the entry from the agy token so the switch still sticks.
 
 Because refresh tokens only work with the OAuth client that issued them, agk-reborn tries every candidate client until one accepts the token, then records the winner in the profile so the next refresh is instant.
 
@@ -103,6 +106,7 @@ Candidates come from three places, in order:
 ## Security notes
 
 - **No secrets in this repo** — OAuth client credentials are discovered at runtime from the local installation, never hardcoded
+- **Keyring writes stay local** — the Secret Service entry is only read/written via `secret-tool` on the same machine; nothing leaves the host
 - Profiles live in `~/.agk-reborn` with restrictive permissions — they contain real refresh tokens; treat the directory as sensitive
 - Tokens are never printed to the terminal or logs
 

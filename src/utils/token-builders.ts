@@ -1,5 +1,10 @@
 import { type OAuthClient, SCOPES, TOKEN_URL } from "./oauth.js"
-import { ACP_TOKEN_REL, AGY_TOKEN_REL, OAUTH_CREDS_REL } from "./paths.js"
+import {
+  ACP_TOKEN_REL,
+  AGY_TOKEN_REL,
+  KEYRING_REL,
+  OAUTH_CREDS_REL,
+} from "./paths.js"
 
 export interface FreshTokens {
   access_token: string
@@ -88,7 +93,7 @@ export function patchAuthFileTokens(
     const parsed = JSON.parse(content) as Record<string, unknown>
     const expiry = new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000)
 
-    if (relPath === AGY_TOKEN_REL) {
+    if (relPath === AGY_TOKEN_REL || relPath === KEYRING_REL) {
       const token = (parsed["token"] ?? {}) as Record<string, unknown>
       token["access_token"] = tokens.access_token
       token["refresh_token"] = tokens.refresh_token

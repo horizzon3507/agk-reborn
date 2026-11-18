@@ -6,10 +6,16 @@ import {
   readAuthFile,
 } from "./auth-files.js"
 import { extractClientFromAuthFile } from "./oauth-clients.js"
-import { AGY_TOKEN_REL, OAUTH_CREDS_REL } from "./paths.js"
+import { AGY_TOKEN_REL, KEYRING_REL, OAUTH_CREDS_REL } from "./paths.js"
 import { saveProfile } from "./profiles.js"
 
 export function detectCurrentSessionEmail(): string | null {
+  const keyringToken = readAuthFile(KEYRING_REL)
+  if (keyringToken) {
+    const email = detectAuthFileEmail(KEYRING_REL, keyringToken)
+    if (email) return email
+  }
+
   const agyToken = readAuthFile(AGY_TOKEN_REL)
   if (agyToken) {
     const email = detectAuthFileEmail(AGY_TOKEN_REL, agyToken)

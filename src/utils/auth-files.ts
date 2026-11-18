@@ -9,8 +9,14 @@ import {
 import { dirname, join } from "node:path"
 import { decodeJwtPayload } from "./jwt.js"
 import {
+  clearKeyringSecret,
+  readKeyringSecret,
+  writeKeyringSecret,
+} from "./keyring.js"
+import {
   ACP_TOKEN_REL,
   AGY_TOKEN_REL,
+  KEYRING_REL,
   OAUTH_CREDS_REL,
   getGeminiDir,
   getLiveAuthFilePath,
@@ -37,6 +43,10 @@ export interface AuthFileSnapshot {
 }
 
 export function readAuthFile(relPath: string): string | null {
+  if (relPath === KEYRING_REL) {
+    return readKeyringSecret()
+  }
+
   const absPath = getLiveAuthFilePath(relPath)
   if (!existsSync(absPath)) return null
 
@@ -45,6 +55,14 @@ export function readAuthFile(relPath: string): string | null {
   } catch {
     return null
   }
+}
+
+export function authFileExists(relPath: string): boolean {
+  if (relPath === KEYRING_REL) {
+    return readKeyringSecret() !== null
+  }
+
+  return existsSync(getLiveAuthFilePath(relPath))
 }
 
 export function parseAgyTokenFile(content: string): AgyTokenFile | null {
@@ -61,7 +79,7 @@ export function detectAuthFileEmail(
   relPath: string,
   content: string
 ): string | null {
-  if (relPath === AGY_TOKEN_REL) {
+  if (relPath === AGY_TOKEN_REL || relPath === KEYRING_REL) {
     const parsed = parseAgyTokenFile(content)
     if (parsed?.id_token_email) return parsed.id_token_email
 
@@ -92,6 +110,11 @@ export function detectAuthFileEmail(
 }
 
 export function writeAuthFileAtomic(relPath: string, content: string): void {
+  if (relPath === KEYRING_REL) {
+    writeKeyringSecret(content)
+    return
+  }
+
   const absPath = getLiveAuthFilePath(relPath)
   const dir = dirname(absPath)
   if (!existsSync(dir)) {
@@ -104,6 +127,10 @@ export function writeAuthFileAtomic(relPath: string, content: string): void {
 }
 
 export function removeAuthFile(relPath: string): boolean {
+  if (relPath === KEYRING_REL) {
+    return clearKeyringSecret()
+  }
+
   const absPath = getLiveAuthFilePath(relPath)
   try {
     rmSync(absPath)
@@ -118,7 +145,12 @@ export function captureLiveAuthFiles(
 ): AuthFileSnapshot[] {
   const snapshots: AuthFileSnapshot[] = []
 
-  for (const relPath of [AGY_TOKEN_REL, OAUTH_CREDS_REL, ACP_TOKEN_REL]) {
+  for (const relPath of [
+    AGY_TOKEN_REL,
+    OAUTH_CREDS_REL,
+    ACP_TOKEN_REL,
+    KEYRING_REL,
+  ]) {
     const content = readAuthFile(relPath)
     if (content === null) continue
 
@@ -137,7 +169,10 @@ export function extractRefreshToken(snapshot: AuthFileSnapshot): string | null {
   try {
     const parsed = JSON.parse(snapshot.content) as Record<string, unknown>
 
-    if (snapshot.relPath === AGY_TOKEN_REL) {
+    if (
+      snapshot.relPath === AGY_TOKEN_REL ||
+      snapshot.relPath === KEYRING_REL
+    ) {
       const token = parsed["token"] as { refresh_token?: string } | undefined
       return token?.["refresh_token"] ?? null
     }

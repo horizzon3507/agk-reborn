@@ -15,6 +15,7 @@ import { refreshAccessTokenAnyClient } from "../../utils/oauth.js"
 import {
   ACP_TOKEN_REL,
   AGY_TOKEN_REL,
+  KEYRING_REL,
   MANAGED_AUTH_FILES,
 } from "../../utils/paths.js"
 import { getProfile, saveProfile } from "../../utils/profiles.js"
@@ -203,6 +204,8 @@ The tokens are saved as a profile.${activate ? `\n${pc.yellow("⚠")} --activate
       for (const file of files) {
         writeAuthFileAtomic(file.relPath, file.content)
       }
+      const agyFile = files.find((file) => file.relPath === AGY_TOKEN_REL)
+      if (agyFile) writeAuthFileAtomic(KEYRING_REL, agyFile.content)
       setActiveAccount(email)
       console.log(
         `  ${pc.yellow("⚠")} Live session switched to ${pc.cyan(email)}. Restart running agy sessions.`
@@ -302,6 +305,8 @@ async function runTokenFlow(activate: boolean): Promise<void> {
       for (const file of files) {
         writeAuthFileAtomic(file.relPath, file.content)
       }
+      const agyFile = files.find((file) => file.relPath === AGY_TOKEN_REL)
+      if (agyFile) writeAuthFileAtomic(KEYRING_REL, agyFile.content)
       setActiveAccount(email)
       console.log(
         `  ${pc.yellow("⚠")} Live session switched to ${pc.cyan(email)}.`

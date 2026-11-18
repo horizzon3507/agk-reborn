@@ -15,7 +15,11 @@ import {
 import { printHeader } from "../../utils/branding.js"
 import { buildClientCandidates } from "../../utils/oauth-clients.js"
 import { refreshAccessTokenAnyClient } from "../../utils/oauth.js"
-import { MANAGED_AUTH_FILES } from "../../utils/paths.js"
+import {
+  AGY_TOKEN_REL,
+  KEYRING_REL,
+  MANAGED_AUTH_FILES,
+} from "../../utils/paths.js"
 import { listAgyProcesses, terminateProcesses } from "../../utils/processes.js"
 import {
   getProfile,
@@ -46,7 +50,7 @@ export default defineCommand({
       description: "Kill running agy processes and switch without prompts",
       default: false,
     },
-    keepProcesses: {
+    "keep-processes": {
       type: "boolean",
       description: "Do not kill running agy processes (switch may not stick)",
       default: false,
@@ -128,7 +132,7 @@ export default defineCommand({
 
     const running = await listAgyProcesses()
     let killed = 0
-    if (running.length > 0 && !args.keepProcesses) {
+    if (running.length > 0 && !args["keep-processes"]) {
       let shouldKill = args.force
       if (!shouldKill) {
         const answer = await p.confirm({
@@ -207,6 +211,16 @@ export default defineCommand({
     }
 
     const restoredPaths = new Set(patched.map((snapshot) => snapshot.relPath))
+
+    if (!restoredPaths.has(KEYRING_REL)) {
+      const agySnapshot = patched.find(
+        (snapshot) => snapshot.relPath === AGY_TOKEN_REL
+      )
+      if (agySnapshot) {
+        writeAuthFileAtomic(KEYRING_REL, agySnapshot.content)
+      }
+    }
+
     const removed: string[] = []
     for (const relPath of MANAGED_AUTH_FILES) {
       if (restoredPaths.has(relPath)) continue
