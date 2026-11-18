@@ -1,10 +1,25 @@
 import * as p from "@clack/prompts"
 import { defineCommand } from "citty"
-import pc from "picocolors"
 import { getActiveAccountEmail } from "../../utils/accounts.js"
 import { printHeader } from "../../utils/branding.js"
-import { listProfiles, removeProfile } from "../../utils/profiles.js"
+import { withAgkLock } from "../../utils/lock.js"
+import {
+  getProfile,
+  listProfiles,
+  removeProfile,
+} from "../../utils/profiles.js"
+import { sanitizeErrorMessage } from "../../utils/redact.js"
 import { detectCurrentSessionEmail } from "../../utils/session.js"
+import { getColors, isInteractiveSession } from "../../utils/tui.js"
+
+function reportError(message: string, json: boolean): void {
+  process.exitCode = 1
+  if (json) {
+    console.log(JSON.stringify({ ok: false, error: message }, null, 2))
+    return
+  }
+  console.error(`${getColors(process.stderr).red("✗")} ${message}`)
+}
 
 export default defineCommand({
   meta: {
@@ -19,68 +34,137 @@ export default defineCommand({
     },
     force: {
       type: "boolean",
-      description: "Skip confirmation",
+      description: "Skip confirmation prompt",
+      alias: "f",
+      default: false,
+    },
+    json: {
+      type: "boolean",
+      description: "Output result as JSON",
       default: false,
     },
   },
-  async run({ args }) {
-    printHeader("agk auth remove")
+  async run({ args }): Promise<void> {
+    const json = Boolean(args.json)
+    const interactive = isInteractiveSession({ json })
+    const c = getColors(process.stdout)
 
-    p.intro(`${pc.cyan("◆")} ${pc.bold("Remove account")}`)
+    printHeader("agk auth remove", { json })
+    if (interactive) {
+      p.intro(`${c.cyan("◆")} ${c.bold("Remove account")}`)
+    }
 
     const profiles = listProfiles()
     if (profiles.length === 0) {
-      p.note("No profiles yet.", "Empty")
-      p.cancel("Nothing to remove")
-      process.exit(1)
+      if (interactive) {
+        p.note("No profiles saved yet.", "Empty")
+      }
+      reportError("No saved profiles to remove", json)
+      return
     }
 
     const activeEmail = detectCurrentSessionEmail() ?? getActiveAccountEmail()
+    let rawEmail =
+      typeof args.email === "string" && args.email.trim().length > 0
+        ? args.email.trim()
+        : undefined
 
-    let email = args.email
-    if (!email) {
-      const selected = await p.select({
+    if (!rawEmail) {
+      if (!interactive) {
+        reportError(
+          "Account email and --force are required in non-interactive mode (agk auth remove <email> --force)",
+          json
+        )
+        return
+      }
+
+      const selected = await p.select<string>({
         message: "Remove which profile?",
         options: profiles.map((profile) => ({
           value: profile.email,
           label:
             profile.email === activeEmail
-              ? `${profile.email} ${pc.green("(current)")}`
+              ? `${profile.email} ${c.green("(current)")}`
               : profile.email,
         })),
       })
 
       if (p.isCancel(selected)) {
         p.cancel("Cancelled")
-        process.exit(0)
+        process.exitCode = 130
+        return
       }
-      email = selected
+      rawEmail = selected
     }
 
-    const target = profiles.find((profile) => profile.email === email)
+    const target = getProfile(rawEmail)
     if (!target) {
-      p.cancel(`No profile for ${email}`)
-      process.exit(1)
+      reportError(`No profile for ${rawEmail}`, json)
+      return
     }
+
+    const canonicalEmail = target.email
+    const isActive = canonicalEmail === activeEmail
 
     if (!args.force) {
-      const isActive = email === activeEmail
+      if (!interactive) {
+        reportError(
+          `Pass --force to remove ${canonicalEmail} in non-interactive mode`,
+          json
+        )
+        return
+      }
+
       const confirmed = await p.confirm({
-        message: `Remove ${pc.cyan(email)}?${isActive ? `\n${pc.yellow("⚠")} This profile matches your live session — the login itself is NOT touched, only the saved copy.` : ""}`,
+        message: `Remove saved profile for ${c.cyan(canonicalEmail)}?${isActive ? `\n${c.yellow("⚠")} This profile matches your live session (live credentials in ~/.gemini stay untouched).` : ""}`,
         initialValue: false,
       })
 
       if (p.isCancel(confirmed) || !confirmed) {
         p.cancel("Cancelled")
-        process.exit(0)
+        process.exitCode = p.isCancel(confirmed) ? 130 : 0
+        return
       }
     }
 
-    if (!removeProfile(email)) {
-      p.cancel("Failed to remove profile")
-      process.exit(1)
-    }
+    try {
+      const removed = await withAgkLock("auth remove", () =>
+        removeProfile(canonicalEmail)
+      )
+      if (!removed) {
+        reportError(`Failed to remove profile for ${canonicalEmail}`, json)
+        return
+      }
 
-    p.outro(`${pc.green("✔")} ${pc.cyan(email)} removed`)
+      if (json) {
+        console.log(
+          JSON.stringify(
+            {
+              ok: true,
+              removed: true,
+              email: canonicalEmail,
+              wasActiveSession: isActive,
+            },
+            null,
+            2
+          )
+        )
+        return
+      }
+
+      if (isActive && args.force) {
+        console.log(
+          `  ${c.dim(`Note: live session for ${canonicalEmail} remains logged in under ~/.gemini.`)}`
+        )
+      }
+
+      if (interactive) {
+        p.outro(`${c.green("✔")} ${c.cyan(canonicalEmail)} removed`)
+      } else {
+        console.log(`${c.green("✔")} Removed ${canonicalEmail}`)
+      }
+    } catch (error) {
+      reportError(`Remove failed: ${sanitizeErrorMessage(error)}`, json)
+    }
   },
 })
