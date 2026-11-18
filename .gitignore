@@ -2,7 +2,10 @@
 .pnpm-store
 
 /dist
+/bin
+/coverage
 /packages
+*.tsbuildinfo
 
 .claude
 

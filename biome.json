@@ -1,5 +1,21 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "main"
+  },
+  "files": {
+    "ignore": [
+      "dist",
+      "bin",
+      "coverage",
+      "node_modules",
+      ".cursor",
+      "pnpm-lock.yaml"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -21,6 +37,10 @@
       "recommended": true,
       "complexity": {
         "useLiteralKeys": "off"
+      },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
       }
     }
   }
