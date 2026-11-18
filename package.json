@@ -1,13 +1,21 @@
 {
   "name": "agk-reborn",
   "version": "0.1.0",
-  "description": "Multi-account manager for the Antigravity CLI (agy). Capture, switch and monitor Google accounts — CLI-only, no IDE required.",
+  "description": "Multi-account manager for the Antigravity CLI (agy). Capture, switch, and monitor Google accounts from the terminal without the IDE.",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -17,16 +25,24 @@
     "agk-reborn": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist/*.js",
+    "dist/*.cjs",
+    "dist/*.d.ts",
+    "dist/*.d.cts",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
-    "build:bin": "tsup && bun build ./dist/cli.js --compile --outfile dist/agk",
+    "build:bin": "bun build ./src/cli.ts --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile bin/agk",
     "dev": "tsup --watch",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check --write",
-    "prepublishOnly": "npm run build"
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check": "biome check . && tsc --noEmit",
+    "test": "pnpm run build && node --test tests",
+    "prepack": "pnpm run check && pnpm run test",
+    "prepublishOnly": "pnpm run check && pnpm run test"
   },
   "keywords": [
     "antigravity",
@@ -42,8 +58,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/horizzon3507/agk-reborn"
+    "url": "git+https://github.com/horizzon3507/agk-reborn.git"
   },
+  "packageManager": "pnpm@12.15.0",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -51,14 +68,14 @@
     "@clack/prompts": "^0.8.2",
     "citty": "^0.1.6",
     "cli-table3": "^0.6.5",
-    "gradient-string": "^3.0.0",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "gradient-string": "^3.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/gradient-string": "^1.1.6",
     "@types/node": "^22.9.0",
     "tsup": "^8.3.5",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "@types/gradient-string": "^1.1.6"
   }
 }
