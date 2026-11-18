@@ -1,214 +1,391 @@
 import * as p from "@clack/prompts"
 import { defineCommand } from "citty"
 import Table from "cli-table3"
-import pc from "picocolors"
 import { getActiveAccountEmail } from "../../utils/accounts.js"
 import { extractRefreshToken } from "../../utils/auth-files.js"
 import { printHeader } from "../../utils/branding.js"
-import { buildClientCandidates } from "../../utils/oauth-clients.js"
-import type { OAuthClient } from "../../utils/oauth.js"
-import { listProfiles, loadProfileSnapshots } from "../../utils/profiles.js"
-import { type ModelQuota, getQuotaWithRefresh } from "../../utils/quota.js"
+import {
+  discoverOAuthClients,
+  extractClientFromAuthFile,
+} from "../../utils/oauth-clients.js"
+import { type OAuthClient, OAuthError } from "../../utils/oauth.js"
+import {
+  listProfiles,
+  loadProfileSnapshots,
+  setProfileClient,
+  updateProfileFile,
+} from "../../utils/profiles.js"
+import {
+  type ModelQuota,
+  getQuotaWithRefresh,
+  resolveFamilyQuota,
+} from "../../utils/quota.js"
+import {
+  sanitizeErrorMessage,
+  sanitizeTerminalText,
+} from "../../utils/redact.js"
 import { detectCurrentSessionEmail } from "../../utils/session.js"
+import { patchAuthFileTokens } from "../../utils/token-builders.js"
+import {
+  formatResetCountdown,
+  getColors,
+  isColorEnabled,
+  isDumbTerminal,
+  isInteractiveSession,
+  runLiveMonitor,
+  truncateDisplay,
+} from "../../utils/tui.js"
 
-const TARGET_MODELS = ["claude-opus-4-5-thinking", "gemini-3-pro-high"]
-const REFRESH_INTERVAL = 30
+const DEFAULT_REFRESH_SECONDS = 30
 
-interface QuotaInfo {
-  percentage: number
-  resetTime: string
-}
-
-interface Row {
+interface RowState {
   email: string
   isActive: boolean
   fileCount: number
   createdAt: number
+  updatedAt: number
   refreshToken: string | null
+  storedClient: { clientId: string; clientSecret: string } | null
   clients: OAuthClient[]
-  quotas: Map<string, QuotaInfo | null>
+  claudeQuota: ModelQuota | null
+  geminiQuota: ModelQuota | null
+  allModels: ModelQuota[]
+  subscriptionTier: string | null
+  isForbidden: boolean
+  errorKind: "revoked" | "error" | null
+  errorMessage: string | null
   isLoading: boolean
-  error?: string
 }
 
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString("en-US", {
+function parseIntervalSeconds(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return DEFAULT_REFRESH_SECONDS
+  if (typeof raw !== "string") return null
+  const trimmed = raw.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+  const val = Number.parseInt(trimmed, 10)
+  if (!Number.isSafeInteger(val) || val < 5 || val > 3600) return null
+  return val
+}
+
+function formatSavedDate(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "-"
+  const d = new Date(timestamp)
+  if (!Number.isFinite(d.getTime())) return "-"
+  return d.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
   })
 }
 
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str
-  return `${str.slice(0, maxLength - 3)}...`
-}
-
-function clearLines(count: number): void {
-  for (let i = 0; i < count; i++) {
-    process.stdout.write("\x1b[1A\x1b[2K")
-  }
-}
-
-function formatResetTime(resetTimeStr: string): string {
-  if (!resetTimeStr) return ""
-
-  try {
-    const diffMs = new Date(resetTimeStr).getTime() - Date.now()
-    if (diffMs <= 0) return "now"
-
-    const hours = Math.floor(diffMs / 3_600_000)
-    const minutes = Math.floor((diffMs % 3_600_000) / 60_000)
-
-    if (hours > 0) return `${hours}h${minutes}m`
-    return `${minutes}m`
-  } catch {
-    return ""
-  }
-}
-
-function createQuotaDisplay(
-  info: QuotaInfo | null,
-  isLoading: boolean
+function formatQuotaCell(
+  row: RowState,
+  quota: ModelQuota | null,
+  isLoading: boolean,
+  compact: boolean
 ): string {
-  if (isLoading) return pc.dim("...")
-  if (info === null) return pc.dim("—")
+  const c = getColors(process.stdout)
+  if (isLoading || row.isLoading) return c.dim("...")
+  if (!row.refreshToken) return c.yellow("no token")
+  if (row.isForbidden) return c.red("403")
+  if (row.errorKind === "revoked") return c.red("revoked")
+  if (row.errorKind === "error") return c.red("error")
+  if (!quota) return c.dim("-")
 
   const color =
-    info.percentage >= 70
-      ? pc.green
-      : info.percentage >= 30
-        ? pc.yellow
-        : pc.red
-  const reset = formatResetTime(info.resetTime)
-  return color(reset ? `${info.percentage}% (${reset})` : `${info.percentage}%`)
+    quota.percentage >= 70 ? c.green : quota.percentage >= 30 ? c.yellow : c.red
+
+  if (compact) return color(`${quota.percentage}%`)
+  const reset = formatResetCountdown(quota.resetTime, "compact")
+  return color(
+    reset ? `${quota.percentage}% (${reset})` : `${quota.percentage}%`
+  )
 }
 
-function findModelQuota(
-  models: ModelQuota[],
-  target: string
-): QuotaInfo | null {
-  const normalize = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/^models\//, "")
-      .trim()
-  const wanted = normalize(target)
+function syncRowsFromDisk(previous: ReadonlyMap<string, RowState>): RowState[] {
+  const profiles = listProfiles()
+  if (profiles.length === 0) return []
 
-  const model =
-    models.find((m) => normalize(m.name) === wanted) ??
-    models.find((m) => {
-      const name = normalize(m.name)
-      return name.includes(wanted) || wanted.includes(name)
-    }) ??
-    models.find((m) => {
-      const wantedParts = wanted.split("-")
-      const nameParts = normalize(m.name).split("-")
-      return (
-        wantedParts.length >= 2 &&
-        nameParts.length >= 2 &&
-        wantedParts[0] === nameParts[0] &&
-        wantedParts[1] === nameParts[1]
-      )
-    })
+  const activeEmail = detectCurrentSessionEmail() ?? getActiveAccountEmail()
+  const discovered = discoverOAuthClients()
 
-  if (!model) return null
-  return { percentage: model.percentage, resetTime: model.resetTime }
-}
+  return profiles.map((profile) => {
+    const prev = previous.get(profile.email)
+    if (prev && prev.updatedAt === profile.updatedAt) {
+      return {
+        ...prev,
+        isActive: profile.email === activeEmail,
+      }
+    }
 
-function setupKeyHandler(onReload: () => void, onExit: () => void): () => void {
-  const stdin = process.stdin
-  if (stdin.isTTY) stdin.setRawMode(true)
-  stdin.resume()
-  stdin.setEncoding("utf8")
+    const snapshots = loadProfileSnapshots(profile.email)
+    const refreshToken =
+      snapshots
+        .map((s) => extractRefreshToken(s))
+        .find((tok): tok is string => tok !== null) ?? null
 
-  const handler = (key: string) => {
-    if (key === "q" || key === "\x03") onExit()
-    else if (key === "r") onReload()
-  }
-  stdin.on("data", handler)
+    const storedClient =
+      profile.clientId && profile.clientSecret
+        ? { clientId: profile.clientId, clientSecret: profile.clientSecret }
+        : null
 
-  return () => {
-    stdin.removeListener("data", handler)
-    if (stdin.isTTY) stdin.setRawMode(false)
-    stdin.pause()
-  }
-}
+    const clients: OAuthClient[] = []
+    const seen = new Set<string>()
+    const addClient = (cand: OAuthClient | null): void => {
+      if (!cand) return
+      const key = `${cand.id}:${cand.secret}`
+      if (seen.has(key)) return
+      seen.add(key)
+      clients.push(cand)
+    }
 
-function renderTable(
-  rows: Row[],
-  countdown: number,
-  isLoading: boolean
-): number {
-  const table = new Table({
-    head: [
-      pc.white(""),
-      pc.white("Email"),
-      pc.white("Files"),
-      pc.white("Claude"),
-      pc.white("Gemini"),
-      pc.white("Saved"),
-    ],
-    style: { head: [], border: ["gray"] },
-    colWidths: [3, 30, 12, 16, 16, 14],
+    if (storedClient) {
+      addClient({
+        id: storedClient.clientId,
+        secret: storedClient.clientSecret,
+        label: "profile",
+      })
+    }
+    for (const snap of snapshots) {
+      addClient(extractClientFromAuthFile(snap.content))
+    }
+    for (const disc of discovered) {
+      addClient(disc)
+    }
+
+    return {
+      email: profile.email,
+      isActive: profile.email === activeEmail,
+      fileCount: Object.keys(profile.files).length,
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+      refreshToken,
+      storedClient,
+      clients,
+      claudeQuota: prev?.claudeQuota ?? null,
+      geminiQuota: prev?.geminiQuota ?? null,
+      allModels: prev?.allModels ?? [],
+      subscriptionTier: prev?.subscriptionTier ?? null,
+      isForbidden: false,
+      errorKind: null,
+      errorMessage: null,
+      isLoading: true,
+    }
   })
+}
+
+async function refreshRowQuotas(
+  rows: RowState[],
+  signal: AbortSignal
+): Promise<void> {
+  await Promise.all(
+    rows.map(async (row) => {
+      row.isLoading = true
+      row.errorKind = null
+      row.errorMessage = null
+      row.isForbidden = false
+
+      if (!row.refreshToken) {
+        row.claudeQuota = null
+        row.geminiQuota = null
+        row.allModels = []
+        row.isLoading = false
+        return
+      }
+
+      try {
+        const result = await getQuotaWithRefresh(
+          row.refreshToken,
+          row.clients,
+          { signal, timeoutMs: 12_000 }
+        )
+
+        if (
+          !row.storedClient ||
+          row.storedClient.clientId !== result.client.id ||
+          row.storedClient.clientSecret !== result.client.secret
+        ) {
+          setProfileClient(row.email, result.client)
+          row.storedClient = {
+            clientId: result.client.id,
+            clientSecret: result.client.secret,
+          }
+        }
+
+        if (
+          result.refreshedTokens.refresh_token &&
+          result.refreshedTokens.refresh_token !== row.refreshToken
+        ) {
+          const newRefresh = result.refreshedTokens.refresh_token
+          row.refreshToken = newRefresh
+          const snapshots = loadProfileSnapshots(row.email)
+          for (const snap of snapshots) {
+            const updated = patchAuthFileTokens(snap.relPath, snap.content, {
+              access_token: result.refreshedTokens.access_token,
+              refresh_token: newRefresh,
+              expires_in: result.refreshedTokens.expires_in,
+              id_token: result.refreshedTokens.id_token,
+            })
+            updateProfileFile(row.email, snap.relPath, updated)
+          }
+        }
+
+        row.isForbidden = Boolean(result.isForbidden)
+        row.subscriptionTier = result.subscriptionTier ?? null
+        row.allModels = result.models
+
+        if (row.isForbidden) {
+          row.claudeQuota = null
+          row.geminiQuota = null
+        } else {
+          row.claudeQuota = resolveFamilyQuota(result.models, "claude")
+          row.geminiQuota = resolveFamilyQuota(result.models, "gemini")
+        }
+      } catch (error) {
+        if (signal.aborted) return
+        row.claudeQuota = null
+        row.geminiQuota = null
+        row.allModels = []
+        if (error instanceof OAuthError && error.kind === "invalid_grant") {
+          row.errorKind = "revoked"
+          row.errorMessage = "Refresh token expired or revoked"
+        } else {
+          row.errorKind = "error"
+          row.errorMessage = sanitizeErrorMessage(error, 120)
+        }
+      } finally {
+        row.isLoading = false
+      }
+    })
+  )
+}
+
+function buildDashboardLines(
+  rows: readonly RowState[],
+  ctx: {
+    countdown: number
+    isLoading: boolean
+    isInteractive: boolean
+    columns: number
+  }
+): string[] {
+  const c = getColors(process.stdout)
+  const colorOn = isColorEnabled(process.stdout)
+  const dumb = isDumbTerminal()
+  const maxWidth = Math.max(48, ctx.columns - 1)
+  const compact = maxWidth < 96
+
+  const emailCol = compact
+    ? Math.max(18, maxWidth - 36)
+    : Math.min(42, Math.max(26, maxWidth - 68))
+
+  const head = compact
+    ? ["", "Email", "Claude", "Gemini"]
+    : ["", "Email", "Files", "Claude", "Gemini", "Saved"]
+
+  const colWidths = compact
+    ? [3, emailCol, 12, 12]
+    : [3, emailCol, 7, 16, 16, 14]
+
+  const tableOpts: ConstructorParameters<typeof Table>[0] = {
+    head: head.map((h) => (colorOn ? c.white(h) : h)),
+    style: { head: [], border: colorOn ? ["gray"] : [] },
+    colWidths,
+    wordWrap: false,
+  }
+
+  if (dumb) {
+    tableOpts.chars = {
+      top: "-",
+      "top-mid": "+",
+      "top-left": "+",
+      "top-right": "+",
+      bottom: "-",
+      "bottom-mid": "+",
+      "bottom-left": "+",
+      "bottom-right": "+",
+      left: "|",
+      "left-mid": "+",
+      mid: "-",
+      "mid-mid": "+",
+      right: "|",
+      "right-mid": "+",
+      middle: "|",
+    }
+  }
+
+  const table = new Table(tableOpts)
 
   for (const row of rows) {
-    table.push([
-      row.isActive ? pc.green("●") : pc.dim("○"),
-      row.isActive
-        ? pc.green(truncate(row.email, 28))
-        : truncate(row.email, 28),
-      pc.dim(String(row.fileCount)),
-      createQuotaDisplay(
-        row.quotas.get(TARGET_MODELS[0] ?? "") ?? null,
-        row.isLoading
-      ),
-      createQuotaDisplay(
-        row.quotas.get(TARGET_MODELS[1] ?? "") ?? null,
-        row.isLoading
-      ),
-      pc.dim(formatDate(row.createdAt)),
-    ])
+    const marker = row.isActive
+      ? c.green(dumb ? "*" : "●")
+      : c.dim(dumb ? "o" : "○")
+    const safeEmail = truncateDisplay(
+      sanitizeTerminalText(row.email, 120),
+      Math.max(8, emailCol - 2)
+    )
+    const emailLabel = row.isActive ? c.green(safeEmail) : safeEmail
+    const claudeCell = formatQuotaCell(
+      row,
+      row.claudeQuota,
+      ctx.isLoading,
+      compact
+    )
+    const geminiCell = formatQuotaCell(
+      row,
+      row.geminiQuota,
+      ctx.isLoading,
+      compact
+    )
+
+    if (compact) {
+      table.push([marker, emailLabel, claudeCell, geminiCell])
+    } else {
+      table.push([
+        marker,
+        emailLabel,
+        c.dim(String(row.fileCount)),
+        claudeCell,
+        geminiCell,
+        c.dim(formatSavedDate(row.createdAt)),
+      ])
+    }
   }
 
-  const lines: string[] = ["", pc.bold("  Account Profiles"), ""]
+  const lines: string[] = ["", c.bold("  Account Profiles"), ""]
   for (const line of table.toString().split("\n")) {
     lines.push(`  ${line}`)
   }
   lines.push("")
 
-  const active = rows.find((row) => row.isActive)
+  const active = rows.find((r) => r.isActive)
   if (active) {
-    lines.push(pc.dim("  Active: ") + pc.green(active.email))
+    lines.push(
+      `  ${c.dim("Active:")} ${c.green(truncateDisplay(active.email, maxWidth - 12))}`
+    )
   }
 
-  lines.push("")
-  lines.push(
-    pc.dim(
-      `  ${rows.length} profile(s) · ${isLoading ? "Loading quotas..." : `Refresh in ${countdown}s · 'r' reload · 'q' quit`}`
+  const errored = rows.filter((r) => r.errorMessage)
+  for (const errRow of errored.slice(0, 2)) {
+    lines.push(
+      `  ${c.yellow("⚠")} ${truncateDisplay(`${errRow.email}: ${errRow.errorMessage ?? ""}`, maxWidth - 6)}`
     )
-  )
+  }
+
+  if (ctx.isInteractive) {
+    lines.push("")
+    lines.push(
+      c.dim(
+        truncateDisplay(
+          `  ${rows.length} profile(s) · ${ctx.isLoading ? "Loading quotas..." : `Refresh in ${ctx.countdown}s · 'r' reload · 'q' quit`}`,
+          maxWidth
+        )
+      )
+    )
+  }
   lines.push("")
 
-  for (const line of lines) console.log(line)
-  return lines.length
-}
-
-async function fetchQuotas(rows: Row[]): Promise<void> {
-  await Promise.all(
-    rows.map(async (row) => {
-      if (!row.refreshToken) return
-      try {
-        const result = await getQuotaWithRefresh(row.refreshToken, row.clients)
-        for (const target of TARGET_MODELS) {
-          row.quotas.set(target, findModelQuota(result.models, target))
-        }
-      } catch (error) {
-        row.error = error instanceof Error ? error.message : "Unknown error"
-      }
-    })
-  )
+  return lines
 }
 
 export default defineCommand({
@@ -216,102 +393,128 @@ export default defineCommand({
     name: "list",
     description: "List saved accounts with live quota",
   },
-  async run() {
-    printHeader("agk auth list")
+  args: {
+    once: {
+      type: "boolean",
+      description: "Print once and exit (no live monitor)",
+      default: false,
+    },
+    interval: {
+      type: "string",
+      description: "Refresh interval in seconds (5-3600)",
+      alias: "i",
+      default: "30",
+    },
+    json: {
+      type: "boolean",
+      description: "Output saved accounts and quota as JSON",
+      default: false,
+    },
+  },
+  async run({ args }): Promise<void> {
+    const json = Boolean(args.json)
+    const c = getColors(process.stdout)
 
-    p.intro(`${pc.cyan("◆")} ${pc.bold("Saved accounts")}`)
-
-    const profiles = listProfiles()
-    if (profiles.length === 0) {
-      p.note(
-        `No profiles yet. Add one with:\n\n  ${pc.cyan("agk auth add")}`,
-        "Empty"
-      )
-      p.outro(pc.dim("Done"))
+    const intervalSeconds = parseIntervalSeconds(args.interval)
+    if (intervalSeconds === null) {
+      process.exitCode = 1
+      const msg = `Invalid --interval value "${String(args.interval)}": expected an integer between 5 and 3600`
+      if (json) {
+        console.log(JSON.stringify({ ok: false, error: msg }, null, 2))
+      } else {
+        console.error(`${getColors(process.stderr).red("✗")} ${msg}`)
+      }
       return
     }
 
-    const activeEmail = detectCurrentSessionEmail() ?? getActiveAccountEmail()
+    const interactive = isInteractiveSession({ json })
+    const singleShot = Boolean(args.once) || !interactive
 
-    const rows: Row[] = profiles.map((profile) => {
-      const snapshots = loadProfileSnapshots(profile.email)
-      const refreshToken =
-        snapshots
-          .map((snapshot) => extractRefreshToken(snapshot))
-          .find((token): token is string => token !== null) ?? null
+    printHeader("agk auth list", { json })
+    if (interactive && !json) {
+      p.intro(`${c.cyan("◆")} ${c.bold("Saved accounts")}`)
+    }
 
-      return {
-        email: profile.email,
-        isActive: profile.email === activeEmail,
-        fileCount: Object.keys(profile.files).length,
-        createdAt: profile.createdAt,
-        refreshToken,
-        clients: buildClientCandidates({
-          stored:
-            profile.clientId && profile.clientSecret
-              ? {
-                  clientId: profile.clientId,
-                  clientSecret: profile.clientSecret,
-                }
-              : null,
-          authFileContents: snapshots.map((snapshot) => snapshot.content),
-        }),
-        quotas: new Map(),
-        isLoading: true,
+    const rowMap = new Map<string, RowState>()
+    let rows = syncRowsFromDisk(rowMap)
+
+    if (rows.length === 0) {
+      if (json) {
+        console.log(
+          JSON.stringify(
+            {
+              ok: true,
+              activeAccount:
+                detectCurrentSessionEmail() ?? getActiveAccountEmail(),
+              accounts: [],
+            },
+            null,
+            2
+          )
+        )
+        return
       }
-    })
-
-    let running = true
-    let lastLineCount = 0
-    let countdown = REFRESH_INTERVAL
-    let isLoading = false
-
-    const render = (loading: boolean) => {
-      if (lastLineCount > 0) clearLines(lastLineCount)
-      lastLineCount = renderTable(rows, countdown, loading)
+      if (interactive) {
+        p.note(
+          `No profiles yet. Add one with:\n\n  ${c.cyan("agk auth add")}`,
+          "Empty"
+        )
+        p.outro(c.dim("Done"))
+      } else {
+        console.log("No saved profiles. Run: agk auth add")
+      }
+      return
     }
 
-    const fetchAndRender = async () => {
-      if (isLoading) return
-      isLoading = true
-      for (const row of rows) row.isLoading = true
-      render(true)
-      await fetchQuotas(rows)
-      for (const row of rows) row.isLoading = false
-      countdown = REFRESH_INTERVAL
-      isLoading = false
-      render(false)
+    if (json) {
+      const controller = new AbortController()
+      await refreshRowQuotas(rows, controller.signal)
+      const active = rows.find((r) => r.isActive)?.email ?? null
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            activeAccount: active,
+            accounts: rows.map((row) => ({
+              email: row.email,
+              isActive: row.isActive,
+              fileCount: row.fileCount,
+              createdAt: row.createdAt,
+              updatedAt: row.updatedAt,
+              hasRefreshToken: row.refreshToken !== null,
+              subscriptionTier: row.subscriptionTier,
+              isForbidden: row.isForbidden,
+              error: row.errorMessage,
+              claude: row.claudeQuota,
+              gemini: row.geminiQuota,
+              models: row.allModels,
+            })),
+          },
+          null,
+          2
+        )
+      )
+      return
     }
 
-    console.log()
-    await fetchAndRender()
-
-    const cleanup = setupKeyHandler(
-      () => {
-        fetchAndRender()
+    const stopReason = await runLiveMonitor({
+      intervalSeconds,
+      once: singleShot,
+      onRefresh: async (signal) => {
+        rows = syncRowsFromDisk(rowMap)
+        for (const r of rows) rowMap.set(r.email, r)
+        await refreshRowQuotas(rows, signal)
       },
-      () => {
-        running = false
-      }
-    )
-
-    const intervalId = setInterval(() => {
-      if (!running) return
-      countdown--
-      if (!isLoading) render(false)
-      if (countdown <= 0) fetchAndRender()
-    }, 1000)
-
-    await new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (running) return
-        clearInterval(check)
-        clearInterval(intervalId)
-        cleanup()
-        console.log()
-        p.outro(pc.dim("Closed"))
-        resolve()
-      }, 100)
+      renderLines: (ctx) => buildDashboardLines(rows, ctx),
     })
+
+    if (stopReason === "sigint") {
+      process.exitCode = 130
+      return
+    }
+
+    if (interactive && !singleShot) {
+      p.outro(c.dim("Closed"))
+    }
   },
 })

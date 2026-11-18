@@ -1,78 +1,237 @@
 import * as p from "@clack/prompts"
 import { defineCommand } from "citty"
-import pc from "picocolors"
 import { getActiveAccountEmail } from "../../utils/accounts.js"
-import {
-  authFileExists,
-  detectAuthFileEmail,
-  readAuthFile,
-} from "../../utils/auth-files.js"
+import { inspectAuthFile, readAuthFileState } from "../../utils/auth-files.js"
 import { printHeader } from "../../utils/branding.js"
 import {
   AGY_TOKEN_REL,
   KEYRING_REL,
   MANAGED_AUTH_FILES,
+  OAUTH_CREDS_REL,
 } from "../../utils/paths.js"
 import { getProfile } from "../../utils/profiles.js"
+import { sanitizeTerminalText } from "../../utils/redact.js"
+import {
+  formatResetCountdown,
+  getColors,
+  isInteractiveSession,
+} from "../../utils/tui.js"
+
+interface FileReportEntry {
+  relPath: string
+  status: "ok" | "missing" | "unavailable" | "unreadable" | "invalid"
+  email: string | null
+  hasRefreshToken: boolean
+  expiresAt: string | null
+  isExpired: boolean | null
+}
+
+function formatExpiryBadge(
+  expiresAtMs: number | null,
+  isExpired: boolean | null
+): string {
+  const c = getColors(process.stdout)
+  if (expiresAtMs === null) return ""
+  if (isExpired) return ` ${c.yellow("(access token expired)")}`
+  const iso = new Date(expiresAtMs).toISOString()
+  const rem = formatResetCountdown(iso, "compact")
+  return rem ? ` ${c.dim(`(valid ${rem})`)}` : ""
+}
 
 export default defineCommand({
   meta: {
     name: "current",
     description: "Show the account the agy CLI is currently using",
   },
-  async run() {
-    printHeader("agk auth current")
+  args: {
+    json: {
+      type: "boolean",
+      description: "Output current session status as JSON",
+      default: false,
+    },
+  },
+  async run({ args }): Promise<void> {
+    const json = Boolean(args.json)
+    const interactive = isInteractiveSession({ json })
+    const c = getColors(process.stdout)
 
-    p.intro(`${pc.cyan("◆")} ${pc.bold("Current session")}`)
-
-    const activeMarker = getActiveAccountEmail()
-    const lines: string[] = []
-
-    let sessionEmail: string | null = null
-
-    for (const relPath of MANAGED_AUTH_FILES) {
-      if (!authFileExists(relPath)) {
-        lines.push(`  ${pc.dim("✗")} ${relPath} ${pc.dim("— missing")}`)
-        continue
-      }
-
-      const content = readAuthFile(relPath)
-      if (content === null) {
-        lines.push(`  ${pc.yellow("⚠")} ${relPath} ${pc.dim("— unreadable")}`)
-        continue
-      }
-
-      const email = detectAuthFileEmail(relPath, content)
-      const detail = email ?? pc.dim("no email embedded")
-
-      if (relPath === AGY_TOKEN_REL) {
-        sessionEmail = email
-      }
-      if (relPath === KEYRING_REL && email) {
-        sessionEmail = email
-      }
-
-      lines.push(`  ${pc.green("✔")} ${relPath} ${pc.dim("—")} ${detail}`)
+    printHeader("agk auth current", { json })
+    if (interactive) {
+      p.intro(`${c.cyan("◆")} ${c.bold("Current session")}`)
     }
 
-    if (sessionEmail && sessionEmail !== activeMarker) {
+    const activeMarker = getActiveAccountEmail()
+    const entries: FileReportEntry[] = []
+    const lines: string[] = []
+    const ownersByPath = new Map<string, string>()
+
+    for (const relPath of MANAGED_AUTH_FILES) {
+      const state = readAuthFileState(relPath)
+
+      if (state.status === "unavailable") {
+        entries.push({
+          relPath,
+          status: "unavailable",
+          email: null,
+          hasRefreshToken: false,
+          expiresAt: null,
+          isExpired: null,
+        })
+        lines.push(
+          `  ${c.dim("-")} ${relPath} ${c.dim("· keyring unavailable")}`
+        )
+        continue
+      }
+
+      if (state.status === "missing") {
+        entries.push({
+          relPath,
+          status: "missing",
+          email: null,
+          hasRefreshToken: false,
+          expiresAt: null,
+          isExpired: null,
+        })
+        lines.push(`  ${c.dim("✗")} ${relPath} ${c.dim("· missing")}`)
+        continue
+      }
+
+      if (state.status === "unreadable") {
+        entries.push({
+          relPath,
+          status: "unreadable",
+          email: null,
+          hasRefreshToken: false,
+          expiresAt: null,
+          isExpired: null,
+        })
+        lines.push(
+          `  ${c.yellow("⚠")} ${relPath} ${c.dim(`· unreadable (${state.reason})`)}`
+        )
+        continue
+      }
+
+      const info = inspectAuthFile(relPath, state.content)
+      if (!info.valid) {
+        entries.push({
+          relPath,
+          status: "invalid",
+          email: null,
+          hasRefreshToken: false,
+          expiresAt: null,
+          isExpired: null,
+        })
+        lines.push(
+          `  ${c.red("✗")} ${relPath} ${c.red("· invalid or corrupted JSON")}`
+        )
+        continue
+      }
+
+      if (info.email) {
+        ownersByPath.set(relPath, info.email)
+      }
+
+      const expiresAtIso =
+        info.expiresAtMs !== null
+          ? new Date(info.expiresAtMs).toISOString()
+          : null
+
+      entries.push({
+        relPath,
+        status: "ok",
+        email: info.email,
+        hasRefreshToken: info.hasRefreshToken,
+        expiresAt: expiresAtIso,
+        isExpired: info.isExpired,
+      })
+
+      const detail = info.email
+        ? sanitizeTerminalText(info.email, 120)
+        : c.dim("no email embedded")
+      const expiryBadge = formatExpiryBadge(info.expiresAtMs, info.isExpired)
       lines.push(
-        `  ${pc.yellow("⚠")} google_accounts.json points at ${pc.cyan(activeMarker ?? "?")} but the token belongs to ${pc.cyan(sessionEmail)}`
+        `  ${c.green("✔")} ${relPath} ${c.dim("·")} ${detail}${expiryBadge}`
       )
     }
 
-    const active = sessionEmail ?? activeMarker
-    const profile = active ? getProfile(active) : null
+    const sessionEmail =
+      ownersByPath.get(KEYRING_REL) ??
+      ownersByPath.get(AGY_TOKEN_REL) ??
+      ownersByPath.get(OAUTH_CREDS_REL) ??
+      null
 
-    p.note(
-      `${pc.green("Account:")} ${active ? pc.cyan(active) : pc.red("none")}
-${pc.green("Saved profile:")} ${profile ? pc.green("yes") : pc.dim("no — run agk auth add → Capture")}`,
-      "Status"
-    )
+    const distinctTokenOwners = [...new Set(ownersByPath.values())]
+    const warnings: string[] = []
+
+    if (distinctTokenOwners.length > 1) {
+      const breakdown = [...ownersByPath.entries()]
+        .map(([path, owner]) => `${path}=${owner}`)
+        .join(", ")
+      warnings.push(`Split-brain auth files detected: ${breakdown}`)
+    }
+
+    if (sessionEmail && activeMarker && sessionEmail !== activeMarker) {
+      warnings.push(
+        `google_accounts.json points at ${activeMarker} while live token belongs to ${sessionEmail}`
+      )
+    } else if (!sessionEmail && activeMarker) {
+      warnings.push(
+        `google_accounts.json lists ${activeMarker}, but no valid live token file is present`
+      )
+    }
+
+    const profile = sessionEmail ? getProfile(sessionEmail) : null
+
+    if (json) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            account: sessionEmail,
+            activeMarker,
+            savedProfile: Boolean(profile),
+            splitBrain: warnings.length > 0,
+            warnings,
+            files: entries,
+          },
+          null,
+          2
+        )
+      )
+      return
+    }
+
+    const accountLabel = sessionEmail
+      ? c.cyan(sessionEmail)
+      : activeMarker
+        ? `${c.yellow(activeMarker)} ${c.dim("(marker only, no token)")}`
+        : c.red("none")
+
+    const savedLabel = profile
+      ? c.green("yes")
+      : sessionEmail
+        ? c.dim("no (run agk auth add --capture)")
+        : c.dim("no")
+
+    if (interactive) {
+      p.note(
+        `${c.green("Account:")} ${accountLabel}\n${c.green("Saved profile:")} ${savedLabel}`,
+        "Status"
+      )
+    } else {
+      console.log(`Account: ${sessionEmail ?? "none"}`)
+      console.log(`Saved profile: ${profile ? "yes" : "no"}`)
+      console.log()
+    }
 
     for (const line of lines) console.log(line)
+    for (const warning of warnings) {
+      console.log(`  ${c.yellow("⚠")} ${warning}`)
+    }
     console.log()
 
-    p.outro(pc.dim("Done"))
+    if (interactive) {
+      p.outro(c.dim("Done"))
+    }
   },
 })
