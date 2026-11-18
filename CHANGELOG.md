@@ -19,6 +19,13 @@ Each release heading is the version and date (`## v0.2.0 · 18/11/2026`); under 
 
 </details>
 
+## v0.2.1 · 18/11/2026
+
+Relicensed under Apache 2.0 with the upstream MIT notice preserved. This version was made for CLI on 18/11/2026 (v0.2.1).
+
+- `LICENSE.md` now ships the Apache License 2.0; the original `antigravity-kit` MIT copyright and permission notice stays intact below it.
+- `package.json` `license` field and the README badge and license section updated to Apache 2.0.
+
 ## v0.2.0 · 18/11/2026
 
 End-to-end security hardening, transactional account switching, `agk auth refresh`, `agk doctor --fix`, scriptable `--json` output across every command, and zero runtime bloat. This version was made for CLI on 18/11/2026 (v0.2.0).
