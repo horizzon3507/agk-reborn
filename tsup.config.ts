@@ -1,26 +1,39 @@
+import { rmSync } from "node:fs"
 import { defineConfig } from "tsup"
 
-export default defineConfig([
-  {
-    entry: {
-      cli: "src/cli.ts",
+export default defineConfig((options) => {
+  if (!options.watch) {
+    rmSync("dist", { recursive: true, force: true })
+  }
+
+  return [
+    {
+      entry: {
+        cli: "src/cli.ts",
+      },
+      format: ["esm"],
+      platform: "node",
+      target: "node18",
+      removeNodeProtocol: false,
+      dts: false,
+      clean: false,
+      sourcemap: true,
+      splitting: false,
+      shims: false,
     },
-    format: ["esm"],
-    dts: false,
-    clean: true,
-    sourcemap: true,
-    splitting: false,
-    shims: true,
-  },
-  {
-    entry: {
-      index: "src/index.ts",
+    {
+      entry: {
+        index: "src/index.ts",
+      },
+      format: ["esm", "cjs"],
+      platform: "node",
+      target: "node18",
+      removeNodeProtocol: false,
+      dts: true,
+      clean: false,
+      sourcemap: true,
+      splitting: false,
+      shims: false,
     },
-    format: ["esm", "cjs"],
-    dts: true,
-    clean: false,
-    sourcemap: true,
-    splitting: false,
-    shims: true,
-  },
-])
+  ]
+})
