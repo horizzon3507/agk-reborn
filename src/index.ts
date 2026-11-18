@@ -1,40 +1,121 @@
 export {
+  BIN_NAME,
+  DESCRIPTION,
+  NAME,
+  VERSION,
+} from "./version.js"
+
+export {
+  MAX_OLD_ACCOUNTS,
   getActiveAccountEmail,
   readGoogleAccounts,
   setActiveAccount,
 } from "./utils/accounts.js"
+export type { GoogleAccountsFile } from "./utils/accounts.js"
 
 export {
+  authFileExists,
   captureLiveAuthFiles,
   detectAuthFileEmail,
   extractRefreshToken,
   geminiDirExists,
+  inspectAuthFile,
+  isValidAuthFileContent,
   parseAgyTokenFile,
   readAuthFile,
+  readAuthFileState,
   removeAuthFile,
   writeAuthFileAtomic,
 } from "./utils/auth-files.js"
-export type { AgyTokenFile, AuthFileSnapshot } from "./utils/auth-files.js"
+export type {
+  AgyTokenFile,
+  AuthFileInspection,
+  AuthFileSnapshot,
+  AuthFileState,
+} from "./utils/auth-files.js"
 
-export { decodeJwtPayload } from "./utils/jwt.js"
+export {
+  MAX_JWT_LENGTH,
+  decodeJwtPayload,
+  getJwtExpiryMs,
+  isJwtExpired,
+} from "./utils/jwt.js"
+export type { JwtPayload } from "./utils/jwt.js"
+
+export {
+  KEYRING_LABEL,
+  KEYRING_SERVICE,
+  KEYRING_USERNAME,
+  clearKeyringSecret,
+  isValidKeyringSecret,
+  keyringAvailable,
+  readKeyringSecret,
+  resetKeyringCache,
+  setKeyringTestBackend,
+  writeKeyringSecret,
+} from "./utils/keyring.js"
+export type { KeyringBackend } from "./utils/keyring.js"
+
+export {
+  getAgkLockPath,
+  isAgkLocked,
+  withAgkLock,
+  withAgkLockSync,
+} from "./utils/lock.js"
+export type { LockOptions } from "./utils/lock.js"
 
 export {
   ACP_TOKEN_REL,
   AGY_TOKEN_REL,
   GOOGLE_ACCOUNTS_REL,
+  KEYRING_REL,
   MANAGED_AUTH_FILES,
   OAUTH_CREDS_REL,
+  assertSafeRelPath,
+  assertWithinDir,
+  findExecutableInPath,
+  formatDisplayPath,
   getAgkDir,
   getAgyTokenPath,
   getGeminiDir,
   getGoogleAccountsPath,
   getLiveAuthFilePath,
   getProfilesDir,
+  isGeminiDirOverridden,
+  resolveHomeDir,
 } from "./utils/paths.js"
+export type { ManagedAuthFile } from "./utils/paths.js"
 
 export {
+  auditPathPermissions,
+  cleanStaleTempFiles,
+  ensureSecureDirSync,
+  isSymlinkSync,
+  listStaleTempFiles,
+  readRegularFileSafe,
+  repairPathPermissions,
+  writeFileAtomicSync,
+} from "./utils/fs-atomic.js"
+export type { PermissionAudit, SafeReadResult } from "./utils/fs-atomic.js"
+
+export {
+  formatHttpErrorDetail,
+  isPlainObject,
+  normalizeEmail,
+  parseJsonObject,
+  redactSecrets,
+  sanitizeErrorMessage,
+  sanitizeTerminalText,
+  stripAnsiAndControls,
+} from "./utils/redact.js"
+
+export {
+  backupProfileTo,
+  decodeRelPath,
+  encodeRelPath,
   getProfile,
   getProfilePath,
+  listCorruptProfileDirs,
   listProfiles,
   loadProfileSnapshots,
   removeProfile,
