@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="assets/logo.png" alt="agk-reborn" width="250" />
+  <img src="https://raw.githubusercontent.com/horizzon3507/agk-reborn/main/assets/logo.png" alt="agk-reborn" width="250" />
 </div>
 
 <h1 align="center">agk-reborn</h1>
 
 <p align="center">
-  Multi-account manager for the Antigravity CLI (<code>agy</code>). Capture, switch and monitor Google accounts — CLI-only, no IDE required.
+  Multi-account manager for the Antigravity CLI (<code>agy</code>). Capture, switch, refresh, and monitor Google accounts from the terminal, no IDE required.
 </p>
 
 <p align="center">
@@ -15,27 +15,26 @@
   <img src="https://img.shields.io/badge/node-%3E%3D18-black" alt="Node >= 18" />
 </p>
 
-> Reborn fork of [antigravity-kit](https://github.com/duongductrong/antigravity-kit), rebuilt for the modern Antigravity CLI authentication model. The original targeted the IDE (`~/.config/Antigravity`, `state.vscdb`, keychain) — this fork manages only the CLI credentials that live in `~/.gemini/`.
+> Reborn fork of [antigravity-kit](https://github.com/duongductrong/antigravity-kit), rebuilt for the Antigravity CLI authentication layout. The upstream tool targeted the desktop IDE (`~/.config/Antigravity`, `state.vscdb`, OS keychain). `agk-reborn` manages only the CLI credentials under `~/.gemini` (and the Linux `gemini`/`antigravity` Secret Service entry) in pure TypeScript with zero native addons.
 
-## Features
+## Overview
 
-- **Capture current session** — snapshot whichever accounts are already logged into `~/.gemini`, no re-login needed
-- **Account-per-file detection** — each auth file is attributed to its owner via JWT/email inspection, so mixed `~/.gemini` states split into the right profiles
-- **Fast switching** — `agk auth switch` restores the target profile atomically and updates the active-account marker
-- **Multi-client token refresh** — refresh tokens are bound to the OAuth client that issued them; agk-reborn knows the Antigravity, agy and Gemini CLI clients and remembers which one works per account
-- **Quota monitoring** — live per-model quota (Claude, Gemini, …) with reset countdowns
-- **Safe by default** — atomic file writes, 0600 permissions, automatic capture of the live session before every switch, warnings when `agy` processes are still running
-- **Zero native dependencies** — no sqlite, no keytar, pure JS/TS
+- Snapshots whichever accounts are already signed into `~/.gemini` (`agk auth add --capture`), attributing each auth file to its Google account via JWT inspection and token correlation so mixed states split cleanly into separate profiles.
+- Adds accounts directly from the terminal through browser OAuth (with RFC 7636 PKCE `S256` and CSRF `state` verification on `127.0.0.1`) or non-interactive refresh-token import (`--token`, `--token-stdin`, `AGK_REFRESH_TOKEN`).
+- Switches active accounts atomically (`agk auth switch`) under an advisory lockfile: backs up the live session, stops or warns about running `agy` processes (while protecting `agk`'s own parent process tree), updates the Linux Secret Service keyring entry, removes stale files owned by other accounts, and rolls back automatically if a write fails.
+- Refreshes OAuth tokens across multiple client credentials (`Antigravity`, `agy`, `Gemini CLI`), recording whichever client issued a profile's refresh token so later switches and `agk auth refresh` runs complete in a single request.
+- Monitors per-model Cloud Code quotas (Claude, Gemini) with reset countdowns in live tables or single-pass scripts (`--once`, `--json`).
+- Audits and repairs directory (`0700`) and file (`0600`) permissions, active-account marker drift, missing keyring mirrors, and leftover staging files (`agk doctor --fix`).
 
 ## Installation
 
-**Standalone binary** (no Node.js needed) — grab `agk` from [Releases](https://github.com/horizzon3507/agk-reborn/releases), or build it yourself:
+Download the standalone `agk` binary from [Releases](https://github.com/horizzon3507/agk-reborn/releases) (no Node.js runtime needed), or compile it locally with Bun:
 
 ```bash
-bun run build:bin   # outputs dist/agk (~69MB, single file)
+bun run build:bin   # writes bin/agk
 ```
 
-**npm** (requires Node.js >= 18):
+Install globally from npm (requires Node.js >= 18):
 
 ```bash
 npm install -g agk-reborn
@@ -43,7 +42,7 @@ npm install -g agk-reborn
 pnpm add -g agk-reborn
 ```
 
-Or run from source:
+Both `agk` and `agk-reborn` invoke the same CLI entrypoint. To build and run from source:
 
 ```bash
 git clone https://github.com/horizzon3507/agk-reborn
@@ -54,67 +53,125 @@ node dist/cli.js --help
 
 ## Usage
 
+Running `agk` or `agk auth` with no arguments in an interactive terminal opens the account manager menu. Outside a TTY, `agk` prints command usage instead of hanging on prompts.
+
 ```bash
-agk auth add        # add an account: capture current session, browser OAuth, or paste a refresh token
-agk auth list       # dashboard: saved accounts + live quota
-agk auth switch     # switch accounts (interactive or `agk auth switch you@gmail.com`)
-agk auth current    # show which account owns each live auth file
-agk auth quota      # quota monitor for one account (`--once` for a single read)
-agk auth remove     # delete a saved profile
-agk doctor          # diagnose binary, auth files, profiles and running processes
+agk auth add                      # interactive: capture session, browser OAuth, or import token
+agk auth add --capture            # snapshot live ~/.gemini session without prompts
+agk auth list                     # live account + quota dashboard ('r' reload, 'q' quit)
+agk auth list --once              # print the account + quota table once and exit
+agk auth switch [email]           # switch the active CLI account
+agk auth current                  # show which account owns each live auth file
+agk auth refresh [email]          # validate and rotate stored OAuth tokens (--all for every profile)
+agk auth quota [email]            # live per-model quota monitor (--once for a single pass)
+agk auth remove [email]           # delete a saved profile from ~/.agk-reborn
+agk doctor                        # inspect agy binary, auth files, permissions, and processes
+agk doctor --fix                  # repair permissions, active-account drift, and keyring sync
 ```
+
+### Command and flag reference
+
+| Command | Flags | Behavior |
+| --- | --- | --- |
+| `agk auth add` | `--capture`, `--oauth`, `--token`, `--token-stdin`, `-e` / `--email <email>`, `--activate`, `-y` / `--yes`, `--json` | `--capture` snapshots `$GEMINI_HOME` into `$AGK_HOME` without prompts; `--oauth` starts browser sign-in directly; `--token` / `--token-stdin` imports a refresh token; `--activate` switches the live CLI session to the added account; `--json` writes structured output to stdout. |
+| `agk auth list` | `--once`, `-i` / `--interval <sec>`, `--json` | `--once` fetches quotas once and exits (automatic outside a TTY); `--interval` sets the live refresh cadence (`5` to `3600`, default `30`); `--json` outputs profile and quota records as JSON. |
+| `agk auth switch [email]` | `--force`, `--keep-processes`, `-q` / `--quiet`, `--json` | `--force` stops running `agy` processes without prompting; `--keep-processes` leaves them running; `--quiet` suppresses non-error text; `--json` outputs the switch summary as JSON. |
+| `agk auth current` | `--json` | Inspects each managed credential file and keyring entry; `--json` outputs `.account`, `.activeMarker`, `.savedProfile`, `.splitBrain`, and per-file ownership/expiry metadata. |
+| `agk auth refresh [email]` | `--all`, `--json` | Validates and rotates tokens for one profile (defaults to active) or `--all` saved profiles, updates live files when refreshing the active account, and emits per-account results under `--json`. |
+| `agk auth quota [email]` | `-a` / `--account <email>`, `--once`, `-i` / `--interval <sec>`, `--json` | Accepts a positional `[email]` or `-a <email>` (defaults to current account); `--once` prints once and exits (automatic outside a TTY); `--json` outputs subscription tier and per-model quota percentages with reset timestamps. |
+| `agk auth remove [email]` | `-f` / `--force`, `--json` | Deletes `$AGK_HOME/profiles/<email>` without touching the live `$GEMINI_HOME` session; `--force` skips confirmation (required outside a TTY). |
+| `agk doctor` | `-f` / `--fix`, `--json` | Audits setup health; `--fix` repairs directory (`0700`) and file (`0600`) modes, aligns stale `google_accounts.json` active markers, backfills missing keyring or disk mirrors, and removes leftover `.agk-tmp-*` staging files. |
 
 ### Typical workflow
 
 ```bash
-# 1. Capture whatever is currently logged in
-agk auth add        # choose "Capture current session"
+# 1. Snapshot the account currently signed into ~/.gemini
+agk auth add --capture
 
-# 2. Log in to another account in agy / gemini-cli, then capture again
-agk auth add
+# 2. Add another account via browser OAuth (or log in via agy and capture again)
+agk auth add --oauth
 
-# 3. Switch freely
-agk auth switch inshigma@gmail.com
+# 3. Switch accounts and stop running agy processes so they cannot overwrite ~/.gemini
+agk auth switch work@example.com --force
+
+# 4. Verify token health and rotate stored tokens across saved profiles
+agk auth refresh --all
 ```
 
-Restart running `agy` processes after switching — they hold credentials in memory. `agk` warns you when this is needed.
+Running `agy` processes hold their credentials in memory and periodically rewrite `~/.gemini` files. `agk auth switch` detects active `agy` processes and offers to terminate them before restoring the target profile, while automatically excluding its own ancestor PIDs so running `agk` inside an `agy` terminal never kills your current session.
+
+### Scripting and `--json` output
+
+Passing `--json` suppresses banners, spinners, and ANSI styling on `stdout`, writing a single JSON document to `stdout` and sending errors to `stderr`. `list` and `quota` fall back to `--once` automatically whenever `stdout` or `stdin` is not a TTY. Exit codes are `0` on success and `1` on invalid flags, errors, or failed `doctor` checks.
+
+```bash
+agk auth current --json | jq -r '.account'
+agk auth quota --once --json | jq '.models[] | {name, percentage, resetTime}'
+agk doctor --fix --json
+```
+
+### Programmatic API
+
+`agk-reborn` ships dual ESM and CommonJS entrypoints with TypeScript declarations:
+
+```ts
+import {
+  captureSessionToProfiles,
+  getActiveAccountEmail,
+  listProfiles,
+} from "agk-reborn"
+
+const active = getActiveAccountEmail()
+const profiles = listProfiles()
+```
+
+## Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AGK_HOME` | `~/.agk-reborn` | Root directory for saved profiles and the `.agk-lock` lockfile (`AGK_DIR` is also accepted). |
+| `GEMINI_HOME` | `~/.gemini` | Root directory for live Antigravity / Gemini CLI credentials (`AGK_GEMINI_DIR` and `GEMINI_CLI_HOME` are also accepted). |
+| `AGK_DISABLE_KEYRING` | _(unset)_ | Skips Linux `secret-tool` keyring reads and writes when set to `1` or `true` (`AGK_NO_KEYRING` is also accepted). |
+| `AGK_NO_BROWSER` | _(unset)_ | Prints the OAuth authorization URL without attempting to spawn a desktop browser. |
+| `AGK_NO_BANNER` | _(unset)_ | Suppresses the ASCII banner header in interactive commands. |
+| `AGK_REFRESH_TOKEN` | _(unset)_ | Supplies a refresh token non-interactively to `agk auth add --token`. |
+| `NO_COLOR` | _(unset)_ | Disables ANSI color sequences when set (`FORCE_COLOR` overrides when non-zero). |
 
 ## How it works
 
-The modern Antigravity CLI stores its session as JSON files under `~/.gemini/`:
+The Antigravity CLI stores its live session under `$GEMINI_HOME` (`~/.gemini` by default):
 
-| File | Contains |
+| Path | Contains |
 | --- | --- |
-| `antigravity-cli/antigravity-oauth-token` | agy access + refresh token |
-| `antigravity-acp/acp_token.json` | ACP agent token |
-| `oauth_creds.json` | shared OAuth credentials |
-| `google_accounts.json` | active-account marker |
-| `keyring/antigravity` | Secret Service item (`gemini`/`antigravity`) — agy reads this first |
+| `antigravity-cli/antigravity-oauth-token` | `agy` access, refresh, and ID tokens |
+| `antigravity-acp/acp_token.json` | ACP agent refresh token and embedded OAuth client pair |
+| `oauth_creds.json` | Shared OAuth credentials |
+| `google_accounts.json` | Active-account marker (`active` and `old` history) |
+| `keyring/antigravity` | Virtual entry for the Linux Secret Service item (`service=gemini`, `username=antigravity`), which `agy` reads before disk files |
 
-A profile is a snapshot of the auth files belonging to one account, stored under `~/.agk-reborn/profiles/<email>/` with `0600` permissions. Switching refreshes the stored token (using the OAuth client that issued it), writes the files back atomically, and sets the active marker.
+A profile is a per-account snapshot stored under `$AGK_HOME/profiles/<email>/` (`0700` directories, `0600` files) with `meta.json` and `files/`. Mutations across `$AGK_HOME` and `$GEMINI_HOME` coordinate through an advisory `$AGK_HOME/.agk-lock` lockfile with dead-PID eviction, refuse to follow symlinks, and stage data into unique `.agk-tmp-*` files (`0600`) synced to disk before an atomic `rename`.
 
-On Linux, `agy` also caches its token in the desktop keyring (via `secret-tool`) and prefers it over the files on disk. agk-reborn manages that entry as a virtual auth file: captured, restored and cleared alongside the rest. If a profile predates keyring capture, the switch derives the entry from the agy token so the switch still sticks.
+On Linux, `agy` caches its active token in the desktop Secret Service keyring (via `secret-tool`) and prefers that entry over files on disk. `agk-reborn` manages the keyring secret as a virtual auth file: captured into profiles, updated during `switch` and `refresh`, cleared when owned by another account, and derived from `antigravity-oauth-token` when switching a profile created without a keyring snapshot. When `GEMINI_HOME` points to a sandboxed directory, host keyring access is isolated automatically so tests and sandboxes never mutate the live desktop keyring.
 
-Because refresh tokens only work with the OAuth client that issued them, agk-reborn tries every candidate client until one accepts the token, then records the winner in the profile so the next refresh is instant.
+Refresh tokens are bound to the OAuth client that issued them. During `switch`, `refresh`, `list`, and `quota`, `agk-reborn` probes candidate clients in order and records the working client pair in `meta.json` so future refreshes succeed immediately:
 
-Candidates come from three places, in order:
-
-1. The profile's recorded client (persisted after the first successful refresh)
-2. Client credentials embedded in the captured auth files themselves (e.g. `acp_token.json` carries its own `client_id`/`client_secret`)
-3. Runtime extraction from the installed `agy`/`antigravity`/`gemini` binaries (and their JS bundles)
+1. The profile's recorded client pair (saved after a prior successful refresh)
+2. Client credentials embedded in captured auth files (`acp_token.json` carries `client_id` and `client_secret`)
+3. Client credentials extracted via chunked streaming scans of installed `agy`, `antigravity`, or `gemini` binaries and JS bundles in `PATH`
 
 ## Security notes
 
-- **No secrets in this repo** — OAuth client credentials are discovered at runtime from the local installation, never hardcoded
-- **Keyring writes stay local** — the Secret Service entry is only read/written via `secret-tool` on the same machine; nothing leaves the host
-- Profiles live in `~/.agk-reborn` with restrictive permissions — they contain real refresh tokens; treat the directory as sensitive
-- Tokens are never printed to the terminal or logs
+- Browser OAuth sign-in (`agk auth add --oauth`) enforces RFC 7636 PKCE (`S256` `code_verifier` and `code_challenge`) and a cryptographic CSRF `state` parameter verified with `crypto.timingSafeEqual`. The local callback listener binds strictly to `127.0.0.1` on an ephemeral port, sends `Cache-Control: no-store` and `Content-Security-Policy` headers, enforces bounded request timeouts, and launches the browser via `execFile` without shell interpolation.
+- No OAuth client secrets live in this repository. Client pairs are discovered at runtime from your local CLI installation or existing auth files.
+- Saved profiles under `$AGK_HOME` (`~/.agk-reborn`) contain real OAuth refresh tokens. Directories are created with `0700` permissions and files with `0600` permissions (`agk doctor --fix` audits and restores both), and symlink targets are rejected on both reads and writes. Protect `$AGK_HOME` and `$GEMINI_HOME` with the same care as `~/.ssh`.
+- Linux Secret Service reads and writes execute locally through `secret-tool` (`service=gemini`, `username=antigravity`) with `SIGKILL`-enforced subprocess timeouts. Outbound HTTPS requests go only to Google endpoints (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`, and `cloudcode-pa.googleapis.com`).
+- Access tokens, refresh tokens (`1//...`), JWTs, and `GOCSPX-*` client secrets are automatically redacted from error messages, terminal output, and `--json` payloads.
 
 ## Credits
 
 - Original project: [duongductrong/antigravity-kit](https://github.com/duongductrong/antigravity-kit) (MIT)
-- Quota API approach based on the community's reverse engineering of the Cloud Code endpoints
+- Cloud Code quota inspection adapted from community documentation of the quota endpoints
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md).
+MIT. See [LICENSE.md](LICENSE.md).
