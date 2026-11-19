@@ -19,6 +19,13 @@ Each release heading is the version and date (`## v0.2.0 · 18/11/2026`); under 
 
 </details>
 
+## v0.2.2 · 18/11/2026
+
+Own-brand cleanup: dropped the upstream logo and MIT notice, refreshed the README. This version was made for CLI on 18/11/2026 (v0.2.2).
+
+- `LICENSE.md` keeps pure Apache 2.0 with a short clean-room credit to `antigravity-kit`; the original MIT license text was removed since no upstream code ships in agk-reborn.
+- `README.md` rewritten in a leaner style (quick install, command table, env, data layout); the `assets/logo.png` file, which was a byte-for-byte copy of upstream artwork, is gone.
+
 ## v0.2.1 · 18/11/2026
 
 Relicensed under Apache 2.0 with the upstream MIT notice preserved. This version was made for CLI on 18/11/2026 (v0.2.1).
