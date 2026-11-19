@@ -1,6 +1,6 @@
 {
   "name": "agk-reborn",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Multi-account manager for the Antigravity CLI (agy). Capture, switch, and monitor Google accounts from the terminal without the IDE.",
   "type": "module",
   "sideEffects": false,
