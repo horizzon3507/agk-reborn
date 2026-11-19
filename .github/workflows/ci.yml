@@ -55,11 +55,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build
+        run: pnpm run build
+
       - name: Lint and typecheck
         run: pnpm run check
 
-      - name: Build and run test suite
-        run: pnpm run test
+      - name: Run test suite
+        run: node --test tests
 
       - name: Verify npm tarball contents and size
         if: runner.os == 'Linux' && matrix.node-version == '22'
