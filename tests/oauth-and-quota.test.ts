@@ -129,8 +129,8 @@ describe("OAuth PKCE, loopback server, binary discovery, and quota API", () => {
         res.writeHead(200, { "Content-Type": "application/json" })
         res.end(
           JSON.stringify({
-            access_token: "ya29."+"fresh_access",
-            refresh_token: "1//"+"rotated_refresh",
+            access_token: "ya29." + "fresh_access",
+            refresh_token: "1//" + "rotated_refresh",
             expires_in: 3600,
           })
         )
@@ -143,30 +143,33 @@ describe("OAuth PKCE, loopback server, binary discovery, and quota API", () => {
 
     process.env["AGK_OAUTH_TOKEN_URL"] = `${url}/token`
 
-    const refreshed = await refreshAccessTokenAnyClient("1//"+"my_valid_token", [
-      {
-        id: "111111-wrongclientid.apps.googleusercontent.com",
-        secret: "GOCSPX-"+"wrongsecret1234567890abcdefg",
-        label: "wrong",
-      },
-      {
-        id: "222222-rightclientid.apps.googleusercontent.com",
-        secret: "GOCSPX-"+"rightsecret1234567890abcdefg",
-        label: "right",
-      },
-    ])
+    const refreshed = await refreshAccessTokenAnyClient(
+      "1//" + "my_valid_token",
+      [
+        {
+          id: "111111-wrongclientid.apps.googleusercontent.com",
+          secret: "GOCSPX-" + "wrongsecret1234567890abcdefg",
+          label: "wrong",
+        },
+        {
+          id: "222222-rightclientid.apps.googleusercontent.com",
+          secret: "GOCSPX-" + "rightsecret1234567890abcdefg",
+          label: "right",
+        },
+      ]
+    )
 
     assert.equal(refreshed.client.label, "right")
-    assert.equal(refreshed.tokens.access_token, "ya29."+"fresh_access")
-    assert.equal(refreshed.tokens.refresh_token, "1//"+"rotated_refresh")
+    assert.equal(refreshed.tokens.access_token, "ya29." + "fresh_access")
+    assert.equal(refreshed.tokens.refresh_token, "1//" + "rotated_refresh")
 
     // When ALL clients return invalid_grant, throws OAuthError with kind === "invalid_grant"
     await assert.rejects(
       () =>
-        refreshAccessTokenAnyClient("1//"+"dead_token", [
+        refreshAccessTokenAnyClient("1//" + "dead_token", [
           {
             id: "111111-wrongclientid.apps.googleusercontent.com",
-            secret: "GOCSPX-"+"wrongsecret1234567890abcdefg",
+            secret: "GOCSPX-" + "wrongsecret1234567890abcdefg",
             label: "only",
           },
         ]),
@@ -219,8 +222,8 @@ describe("OAuth PKCE, loopback server, binary discovery, and quota API", () => {
         res.writeHead(200, { "Content-Type": "application/json" })
         res.end(
           JSON.stringify({
-            access_token: "ya29."+"oauth_access",
-            refresh_token: "1//"+"oauth_refresh",
+            access_token: "ya29." + "oauth_access",
+            refresh_token: "1//" + "oauth_refresh",
             expires_in: 3600,
           })
         )
@@ -269,7 +272,7 @@ describe("OAuth PKCE, loopback server, binary discovery, and quota API", () => {
     const flowResult = await startOAuthFlow(
       {
         id: "333333-flowclientid.apps.googleusercontent.com",
-        secret: "GOCSPX-"+"flowsecret1234567890abcdefghi",
+        secret: "GOCSPX-" + "flowsecret1234567890abcdefghi",
         label: "test",
       },
       {
@@ -304,7 +307,7 @@ describe("OAuth PKCE, loopback server, binary discovery, and quota API", () => {
     const distantPublicId =
       "10000001-distantpublicid.apps.googleusercontent.com"
     const realId = "99887766-realagyclientid.apps.googleusercontent.com"
-    const realSecret35 = "GOCSPX-"+"AbCdEfGhIjKlMnOpQrStUvWxYz12" // exact 35 chars
+    const realSecret35 = "GOCSPX-" + "AbCdEfGhIjKlMnOpQrStUvWxYz12" // exact 35 chars
     const goRodataAdjacent = `${realSecret35}NextGoStringInRodataWithoutNull`
 
     const payload = Buffer.concat([
@@ -347,12 +350,12 @@ describe("OAuth PKCE, loopback server, binary discovery, and quota API", () => {
     })
     process.env["AGK_CLOUD_CODE_URL"] = mockQuota.url
 
-    const emptyRes = await fetchQuota("ya29."+"tok")
+    const emptyRes = await fetchQuota("ya29." + "tok")
     assert.deepEqual(emptyRes.models, [])
     assert.equal(emptyRes.isForbidden, undefined)
 
     mode = "forbidden"
-    const forbiddenRes = await fetchQuota("ya29."+"tok")
+    const forbiddenRes = await fetchQuota("ya29." + "tok")
     assert.equal(forbiddenRes.isForbidden, true)
 
     const sampleModels = [

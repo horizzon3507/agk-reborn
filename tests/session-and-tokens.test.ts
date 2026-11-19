@@ -113,8 +113,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
     const freshJwt = makeFakeJwt({ email: "real-owner@gmail.com" })
     const mismatched = JSON.stringify({
       token: {
-        access_token: "ya29."+"live",
-        refresh_token: "1//"+"refresh_real",
+        access_token: "ya29." + "live",
+        refresh_token: "1//" + "refresh_real",
         id_token: freshJwt,
       },
       id_token_email: "stale-owner@gmail.com",
@@ -148,14 +148,14 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
     })
     const client = {
       id: "123456789-abcdefghijkl.apps.googleusercontent.com",
-      secret: "GOCSPX-"+"1234567890abcdefghijklmnopqr",
+      secret: "GOCSPX-" + "1234567890abcdefghijklmnopqr",
       label: "test",
     }
 
     const files = buildAuthFilesForTokens(
       {
-        access_token: "ya29."+"initial",
-        refresh_token: "1//"+"initial_refresh",
+        access_token: "ya29." + "initial",
+        refresh_token: "1//" + "initial_refresh",
         expires_in: Number.NaN, // must safely default to 3600 without RangeError
         id_token: initialJwt,
       },
@@ -170,8 +170,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
     })
 
     const patchedAgy = patchAuthFileTokens(AGY_TOKEN_REL, agyOriginal, {
-      access_token: "ya29."+"refreshed",
-      refresh_token: "1//"+"rotated_refresh",
+      access_token: "ya29." + "refreshed",
+      refresh_token: "1//" + "rotated_refresh",
       expires_in: 3600,
       id_token: updatedJwt,
     })
@@ -183,8 +183,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
     }
     assert.equal(parsed.custom_field, "keep-me")
     assert.equal(parsed.id_token_email, "alice@gmail.com")
-    assert.equal(parsed.token.access_token, "ya29."+"refreshed")
-    assert.equal(parsed.token.refresh_token, "1//"+"rotated_refresh")
+    assert.equal(parsed.token.access_token, "ya29." + "refreshed")
+    assert.equal(parsed.token.refresh_token, "1//" + "rotated_refresh")
     assert.equal(parsed.token.id_token, updatedJwt)
 
     const inspection = inspectAuthFile(AGY_TOKEN_REL, patchedAgy)
@@ -195,8 +195,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
     // Array JSON must never drop tokens into Array expandos
     assert.equal(
       patchAuthFileTokens(OAUTH_CREDS_REL, "[1, 2, 3]", {
-        access_token: "ya29."+"x",
-        refresh_token: "1//"+"x",
+        access_token: "ya29." + "x",
+        refresh_token: "1//" + "x",
       }),
       "[1, 2, 3]"
     )
@@ -211,8 +211,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
       KEYRING_REL,
       JSON.stringify({
         token: {
-          access_token: "ya29."+"alice",
-          refresh_token: "1//"+"refresh_alice_token",
+          access_token: "ya29." + "alice",
+          refresh_token: "1//" + "refresh_alice_token",
           id_token: jwtAlice,
         },
       })
@@ -221,8 +221,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
       AGY_TOKEN_REL,
       JSON.stringify({
         token: {
-          access_token: "ya29."+"alice",
-          refresh_token: "1//"+"refresh_alice_token",
+          access_token: "ya29." + "alice",
+          refresh_token: "1//" + "refresh_alice_token",
           id_token: jwtAlice,
         },
       })
@@ -230,8 +230,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
     writeAuthFileAtomic(
       OAUTH_CREDS_REL,
       JSON.stringify({
-        access_token: "ya29."+"bob",
-        refresh_token: "1//"+"refresh_bob_token",
+        access_token: "ya29." + "bob",
+        refresh_token: "1//" + "refresh_bob_token",
         id_token: jwtBob,
       })
     )
@@ -239,8 +239,8 @@ describe("JWT decoding, token builders, and mixed-session capture", () => {
       ACP_TOKEN_REL,
       JSON.stringify({
         client_id: "123456789-abcdefghijkl.apps.googleusercontent.com",
-        client_secret: "GOCSPX-"+"1234567890abcdefghijklmnopqr",
-        refresh_token: "1//"+"refresh_bob_token",
+        client_secret: "GOCSPX-" + "1234567890abcdefghijklmnopqr",
+        refresh_token: "1//" + "refresh_bob_token",
       })
     )
 

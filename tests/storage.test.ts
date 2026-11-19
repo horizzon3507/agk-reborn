@@ -174,11 +174,17 @@ describe("storage, atomic fs, lock, and profile safety", () => {
 
   it("redacts secrets, strips ANSI/OSC escapes, and filters prototype keys", () => {
     const dirty =
-      "Bearer " + "ya29." + "secret_access_token_12345 client_secret=" + "GOCSPX-" + "abcdef123456 refresh=" + "1//" + "0gsecret987654321"
+      "Bearer " +
+      "ya29." +
+      "secret_access_token_12345 client_secret=" +
+      "GOCSPX-" +
+      "abcdef123456 refresh=" +
+      "1//" +
+      "0gsecret987654321"
     const clean = redactSecrets(dirty)
-    assert.ok(!clean.includes("ya29."+"secret"))
-    assert.ok(!clean.includes("GOCSPX-"+"abcdef"))
-    assert.ok(!clean.includes("1//"+"0gsecret"))
+    assert.ok(!clean.includes("ya29." + "secret"))
+    assert.ok(!clean.includes("GOCSPX-" + "abcdef"))
+    assert.ok(!clean.includes("1//" + "0gsecret"))
 
     const oscInjected =
       "\x1b]52;c;SGVsbG8=\x07\x1b[31malice@gmail.com\x1b[0m\nnext"

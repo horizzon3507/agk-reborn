@@ -82,24 +82,24 @@ describe("end-to-end CLI workflows in isolated sandbox", () => {
         )
         const rt = params.get("refresh_token") ?? ""
 
-        if (rt === "1//"+"refresh_alice") {
+        if (rt === "1//" + "refresh_alice") {
           res.writeHead(200, { "Content-Type": "application/json" })
           res.end(
             JSON.stringify({
-              access_token: "ya29."+"access_alice_fresh",
-              refresh_token: "1//"+"refresh_alice",
+              access_token: "ya29." + "access_alice_fresh",
+              refresh_token: "1//" + "refresh_alice",
               expires_in: 3600,
               id_token: makeJwt("alice@gmail.com"),
             })
           )
           return
         }
-        if (rt === "1//"+"refresh_bob") {
+        if (rt === "1//" + "refresh_bob") {
           res.writeHead(200, { "Content-Type": "application/json" })
           res.end(
             JSON.stringify({
-              access_token: "ya29."+"access_bob_fresh",
-              refresh_token: "1//"+"refresh_bob",
+              access_token: "ya29." + "access_bob_fresh",
+              refresh_token: "1//" + "refresh_bob",
               expires_in: 3600,
               id_token: makeJwt("bob@gmail.com"),
             })
@@ -231,8 +231,8 @@ describe("end-to-end CLI workflows in isolated sandbox", () => {
       join(geminiHome, "antigravity-cli", "antigravity-oauth-token"),
       JSON.stringify({
         token: {
-          access_token: "ya29."+"alice_init",
-          refresh_token: "1//"+"refresh_alice",
+          access_token: "ya29." + "alice_init",
+          refresh_token: "1//" + "refresh_alice",
           id_token: makeJwt("alice@gmail.com"),
         },
         id_token_email: "alice@gmail.com",
@@ -242,8 +242,8 @@ describe("end-to-end CLI workflows in isolated sandbox", () => {
       join(geminiHome, "antigravity-acp", "acp_token.json"),
       JSON.stringify({
         client_id: "12345678-e2eclientid.apps.googleusercontent.com",
-        client_secret: "GOCSPX-"+"e2eclientsecret1234567890abc",
-        refresh_token: "1//"+"refresh_alice",
+        client_secret: "GOCSPX-" + "e2eclientsecret1234567890abc",
+        refresh_token: "1//" + "refresh_alice",
       })
     )
 

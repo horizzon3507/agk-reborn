@@ -126,7 +126,7 @@ describe("process classification, ancestor PID safety, and keyring backend", () 
     assert.equal(
       isValidKeyringSecret(
         JSON.stringify({
-          token: { access_token: "ya29."+"ok", refresh_token: "1//"+"ok" },
+          token: { access_token: "ya29." + "ok", refresh_token: "1//" + "ok" },
         })
       ),
       true
@@ -150,7 +150,7 @@ describe("process classification, ancestor PID safety, and keyring backend", () 
     assert.equal(readAuthFileState(KEYRING_REL).status, "missing")
 
     const validSecret = JSON.stringify({
-      token: { access_token: "ya29."+"kr", refresh_token: "1//"+"kr" },
+      token: { access_token: "ya29." + "kr", refresh_token: "1//" + "kr" },
       id_token_email: "kr@example.com",
     })
     assert.equal(writeAuthFileAtomic(KEYRING_REL, validSecret), true)
